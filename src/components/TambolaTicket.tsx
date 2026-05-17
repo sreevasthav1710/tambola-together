@@ -11,21 +11,21 @@ interface Props {
 export function TambolaTicket({ ticket, marked, called, onCellClick, playerName }: Props) {
   return (
     <div
-      className="rounded-2xl p-4 shadow-2xl"
+      className="rounded-xl sm:rounded-2xl p-2 sm:p-4 shadow-2xl"
       style={{
         background: "linear-gradient(135deg, var(--tambola-gold), oklch(0.78 0.16 60))",
       }}
     >
-      <div className="flex items-center justify-between mb-3 px-1">
-        <span className="font-serif text-lg font-bold text-[oklch(0.18_0.04_290)]">
+      <div className="flex items-center justify-between mb-2 sm:mb-3 px-1">
+        <span className="font-serif text-sm sm:text-lg font-bold text-[oklch(0.18_0.04_290)] truncate">
           🎟️ {playerName}
         </span>
-        <span className="text-xs font-semibold text-[oklch(0.18_0.04_290)]/70">
+        <span className="text-[9px] sm:text-xs font-semibold text-[oklch(0.18_0.04_290)]/70 shrink-0 ml-2">
           TAMBOLA TICKET
         </span>
       </div>
       <div
-        className="grid gap-1 p-2 rounded-lg"
+        className="grid gap-0.5 sm:gap-1 p-1.5 sm:p-2 rounded-md sm:rounded-lg"
         style={{
           gridTemplateColumns: "repeat(9, minmax(0, 1fr))",
           background: "oklch(0.18 0.04 290 / 0.85)",

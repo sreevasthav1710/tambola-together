@@ -75,8 +75,19 @@ function RoomPage() {
     return () => { cancel = true; };
   }, [roomId]);
 
-  // Realtime.
+  // Realtime + polling fallback (in case realtime stalls).
   useEffect(() => {
+    let alive = true;
+    async function refetch() {
+      const [{ data: r }, { data: ps }] = await Promise.all([
+        supabase.from("rooms").select("*").eq("id", roomId).maybeSingle(),
+        supabase.from("players").select("*").eq("room_id", roomId).order("joined_at"),
+      ]);
+      if (!alive) return;
+      if (r) setRoom(r as unknown as RoomRow);
+      if (ps) setPlayers(ps as unknown as PlayerRow[]);
+    }
+
     const ch = supabase
       .channel(`room-${roomId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "rooms", filter: `id=eq.${roomId}` },
@@ -104,7 +115,15 @@ function RoomPage() {
           });
         })
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+
+    // Safety net: poll every 2.5s so the UI stays in sync even if the
+    // realtime websocket drops or is slow to deliver an event.
+    const interval = window.setInterval(refetch, 2500);
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+      supabase.removeChannel(ch);
+    };
   }, [roomId]);
 
   const me = useMemo(
@@ -137,10 +156,17 @@ function RoomPage() {
     if (remaining.length === 0) return toast.error("All numbers called");
     const pick = remaining[Math.floor(Math.random() * remaining.length)];
     const newCalled = [...room.called_numbers, pick];
-    const updates: Partial<RoomRow> = { called_numbers: newCalled };
-    if (room.status === "waiting") updates.status = "playing";
-    const { error } = await supabase.from("rooms").update(updates).eq("id", room.id);
-    if (error) toast.error(error.message);
+    const newStatus = room.status === "waiting" ? "playing" : room.status;
+    // Optimistic local update so the host gets instant feedback.
+    setRoom({ ...room, called_numbers: newCalled, status: newStatus });
+    const { error } = await supabase
+      .from("rooms")
+      .update({ called_numbers: newCalled, status: newStatus })
+      .eq("id", room.id);
+    if (error) {
+      toast.error(error.message);
+      setRoom(room); // rollback
+    }
   }, [room, isHost, called]);
 
   const handleClaim = useCallback(async (type: ClaimType) => {
@@ -226,19 +252,19 @@ function RoomPage() {
   const lastNumber = room.called_numbers[room.called_numbers.length - 1];
 
   return (
-    <div className="min-h-screen px-4 py-6 max-w-7xl mx-auto">
-      <header className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-primary">Room {room.id}</h1>
-          <p className="text-sm text-muted-foreground">
-            Host: {room.host_name} {isHost && "(you)"} · {players.length} player{players.length !== 1 && "s"} · Housie {room.housies_won}/{room.housies_allowed}
+    <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-24 md:pb-6">
+      <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">Room {room.id}</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Host: {room.host_name}{isHost && " (you)"} · {players.length}P · Housie {room.housies_won}/{room.housies_allowed}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <Button variant="outline" size="sm" onClick={() => {
             navigator.clipboard.writeText(room.id);
             toast.success("Room code copied");
-          }}>Copy code</Button>
+          }}>Copy</Button>
           <Button variant="destructive" size="sm" onClick={() => setExitOpen(true)}>Exit</Button>
         </div>
       </header>
@@ -246,13 +272,13 @@ function RoomPage() {
       {room.status === "ended" ? (
         <Leaderboard room={room} players={players} />
       ) : (
-        <div className="grid md:grid-cols-[1fr_360px] gap-6">
-          <div className="space-y-6">
-            {/* Last number + controls */}
-            <Card className="p-5 flex flex-col sm:flex-row items-center gap-5">
+        <div className="grid md:grid-cols-[1fr_320px] gap-4 md:gap-6">
+          <div className="space-y-4 md:space-y-6">
+            {/* Last number + controls — hidden on mobile (replaced by sticky bottom bar) */}
+            <Card className="p-4 md:p-5 hidden md:flex flex-col sm:flex-row items-center gap-5">
               <div className="flex items-center gap-4">
                 <div className="text-center">
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Last Number</div>
+                  <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Last</div>
                   <div className="number-ball number-ball-called w-24 h-24 text-4xl">
                     {lastNumber ?? "—"}
                   </div>
@@ -285,30 +311,30 @@ function RoomPage() {
             />
 
             {/* Claim buttons */}
-            <Card className="p-4">
-              <div className="text-sm font-semibold mb-3">Claim a prize</div>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                <ClaimBtn label="Fastest 5" prize={room.prize_ff} disabled={!!room.claimed.ff} onClick={() => handleClaim("ff")} />
-                <ClaimBtn label="Top Line" prize={room.prize_line1} disabled={!!room.claimed.line1} onClick={() => handleClaim("line1")} />
+            <Card className="p-3 sm:p-4">
+              <div className="text-sm font-semibold mb-2 sm:mb-3">Claim a prize</div>
+              <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                <ClaimBtn label="Fast 5" prize={room.prize_ff} disabled={!!room.claimed.ff} onClick={() => handleClaim("ff")} />
+                <ClaimBtn label="Top" prize={room.prize_line1} disabled={!!room.claimed.line1} onClick={() => handleClaim("line1")} />
                 <ClaimBtn label="Middle" prize={room.prize_line2} disabled={!!room.claimed.line2} onClick={() => handleClaim("line2")} />
                 <ClaimBtn label="Bottom" prize={room.prize_line3} disabled={!!room.claimed.line3} onClick={() => handleClaim("line3")} />
                 <ClaimBtn label="Housie" prize={room.prize_housie} disabled={room.housies_won >= room.housies_allowed} onClick={() => handleClaim("housie")} />
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Bogey calls deduct the prize amount from your purse. Your purse: <span className="text-primary font-semibold">{me.purse}</span>
+              <p className="text-[11px] sm:text-xs text-muted-foreground mt-2">
+                Bogey deducts prize. Purse: <span className="text-primary font-semibold">{me.purse}</span>
               </p>
             </Card>
 
             {/* Called numbers board */}
-            <Card className="p-4">
-              <div className="text-sm font-semibold mb-3">Called Numbers</div>
-              <div className="grid grid-cols-10 gap-1.5">
+            <Card className="p-3 sm:p-4">
+              <div className="text-sm font-semibold mb-2 sm:mb-3">Called Numbers</div>
+              <div className="grid grid-cols-10 gap-1 sm:gap-1.5">
                 {Array.from({ length: 90 }, (_, i) => i + 1).map((n) => {
                   const c = called.has(n);
                   return (
                     <div
                       key={n}
-                      className={`aspect-square rounded flex items-center justify-center text-xs font-bold ${
+                      className={`aspect-square rounded flex items-center justify-center text-[10px] sm:text-xs font-bold ${
                         c ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground/50"
                       }`}
                     >
@@ -346,6 +372,28 @@ function RoomPage() {
               </ul>
             </Card>
           </aside>
+        </div>
+      )}
+
+      {/* Mobile sticky bottom bar: last number + next-number control */}
+      {room.status !== "ended" && (
+        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 border-t border-border bg-card/95 backdrop-blur px-3 py-2 flex items-center gap-3 shadow-[0_-4px_20px_rgba(0,0,0,0.4)]">
+          <div className="number-ball number-ball-called w-14 h-14 text-2xl shrink-0">
+            {lastNumber ?? "—"}
+          </div>
+          <div className="text-xs text-muted-foreground shrink-0">
+            <div className="font-bold text-base text-foreground">{room.called_numbers.length}/90</div>
+            <div>called</div>
+          </div>
+          {isHost ? (
+            <Button onClick={handleNextNumber} className="flex-1 h-14 text-base font-bold">
+              🎲 Next Number
+            </Button>
+          ) : (
+            <div className="flex-1 text-xs text-center text-muted-foreground">
+              Waiting for host…
+            </div>
+          )}
         </div>
       )}
 

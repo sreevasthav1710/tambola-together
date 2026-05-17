@@ -150,7 +150,7 @@
 
 @layer components {
   .ticket-cell {
-    @apply flex items-center justify-center text-lg font-bold aspect-square select-none transition-all;
+    @apply flex items-center justify-center text-sm sm:text-lg font-bold aspect-square select-none transition-all;
   }
   .ticket-cell-num {
     background: var(--tambola-cream);
