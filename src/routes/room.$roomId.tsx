@@ -190,31 +190,29 @@ function RoomPage() {
       return;
     }
 
-    // Already claimed?
+    // Quick client-side guard for instant feedback (server is the source of truth).
     if (type === "housie") {
       const prev = Array.isArray(claimed.housie) ? claimed.housie : [];
       if (prev.includes(me.id)) return toast.error("You already claimed Housie");
       if (prev.length >= room.housies_allowed) return toast.error("All Housies already claimed");
-      claimed.housie = [...prev, me.id];
-    } else {
-      if (claimed[type]) return toast.error(`${CLAIM_LABELS[type]} already claimed`);
-      claimed[type] = me.id;
+    } else if (claimed[type]) {
+      return toast.error(`${CLAIM_LABELS[type]} already claimed`);
     }
 
-    const newPurse = me.purse + prize;
-    const newHousiesWon = type === "housie" ? room.housies_won + 1 : room.housies_won;
-    const newStatus = type === "housie" && newHousiesWon >= room.housies_allowed ? "ended" : room.status;
-
-    const [r1, r2] = await Promise.all([
-      supabase.from("rooms").update({
-        claimed: claimed as never,
-        housies_won: newHousiesWon,
-        status: newStatus,
-      }).eq("id", room.id),
-      supabase.from("players").update({ purse: newPurse }).eq("id", me.id),
-    ]);
-    if (r1.error || r2.error) {
-      toast.error((r1.error || r2.error)!.message);
+    // Atomic server-side claim — prevents the same prize being awarded twice in a race.
+    const { data, error } = await supabase.rpc("claim_prize", {
+      p_room_id: room.id,
+      p_player_id: me.id,
+      p_type: type,
+      p_prize: prize,
+    });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    const res = data as { ok: boolean; reason?: string } | null;
+    if (!res?.ok) {
+      toast.error(res?.reason ?? "Claim rejected");
       return;
     }
     toast.success(`🎉 ${CLAIM_LABELS[type]}! +${prize}`);
