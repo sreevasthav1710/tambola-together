@@ -108,7 +108,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      claim_prize: {
+        Args: {
+          p_player_id: string
+          p_prize: number
+          p_room_id: string
+          p_type: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
