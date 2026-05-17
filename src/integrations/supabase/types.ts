@@ -14,7 +14,95 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      players: {
+        Row: {
+          id: string
+          joined_at: string
+          marked_numbers: number[]
+          name: string
+          purse: number
+          room_id: string
+          ticket: Json
+        }
+        Insert: {
+          id?: string
+          joined_at?: string
+          marked_numbers?: number[]
+          name: string
+          purse?: number
+          room_id: string
+          ticket: Json
+        }
+        Update: {
+          id?: string
+          joined_at?: string
+          marked_numbers?: number[]
+          name?: string
+          purse?: number
+          room_id?: string
+          ticket?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "players_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rooms: {
+        Row: {
+          called_numbers: number[]
+          claimed: Json
+          created_at: string
+          host_name: string
+          host_player_id: string
+          housies_allowed: number
+          housies_won: number
+          id: string
+          prize_ff: number
+          prize_housie: number
+          prize_line1: number
+          prize_line2: number
+          prize_line3: number
+          status: string
+        }
+        Insert: {
+          called_numbers?: number[]
+          claimed?: Json
+          created_at?: string
+          host_name: string
+          host_player_id: string
+          housies_allowed?: number
+          housies_won?: number
+          id: string
+          prize_ff?: number
+          prize_housie?: number
+          prize_line1?: number
+          prize_line2?: number
+          prize_line3?: number
+          status?: string
+        }
+        Update: {
+          called_numbers?: number[]
+          claimed?: Json
+          created_at?: string
+          host_name?: string
+          host_player_id?: string
+          housies_allowed?: number
+          housies_won?: number
+          id?: string
+          prize_ff?: number
+          prize_housie?: number
+          prize_line1?: number
+          prize_line2?: number
+          prize_line3?: number
+          status?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
