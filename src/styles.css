@@ -147,3 +147,39 @@
     color: var(--color-foreground);
   }
 }
+
+@layer components {
+  .ticket-cell {
+    @apply flex items-center justify-center text-lg font-bold aspect-square select-none transition-all;
+  }
+  .ticket-cell-num {
+    background: var(--tambola-cream);
+    color: var(--tambola-deeper);
+    cursor: pointer;
+  }
+  .ticket-cell-num:hover { filter: brightness(0.95); }
+  .ticket-cell-marked {
+    background: var(--tambola-red);
+    color: var(--tambola-cream);
+    position: relative;
+  }
+  .ticket-cell-marked::after {
+    content: "";
+    position: absolute; inset: 15%;
+    border: 3px solid oklch(0.96 0.04 85 / 0.9);
+    border-radius: 50%;
+  }
+  .ticket-cell-empty {
+    background: oklch(0.96 0.04 85 / 0.3);
+  }
+  .number-ball {
+    @apply rounded-full flex items-center justify-center font-bold;
+    background: radial-gradient(circle at 30% 30%, var(--tambola-cream), var(--tambola-gold));
+    color: var(--tambola-deeper);
+    box-shadow: 0 4px 12px oklch(0 0 0 / 0.4), inset 0 -3px 6px oklch(0 0 0 / 0.15);
+  }
+  .number-ball-called {
+    background: radial-gradient(circle at 30% 30%, oklch(0.7 0.18 25), var(--tambola-red));
+    color: var(--tambola-cream);
+  }
+}
