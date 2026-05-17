@@ -75,8 +75,19 @@ function RoomPage() {
     return () => { cancel = true; };
   }, [roomId]);
 
-  // Realtime.
+  // Realtime + polling fallback (in case realtime stalls).
   useEffect(() => {
+    let alive = true;
+    async function refetch() {
+      const [{ data: r }, { data: ps }] = await Promise.all([
+        supabase.from("rooms").select("*").eq("id", roomId).maybeSingle(),
+        supabase.from("players").select("*").eq("room_id", roomId).order("joined_at"),
+      ]);
+      if (!alive) return;
+      if (r) setRoom(r as unknown as RoomRow);
+      if (ps) setPlayers(ps as unknown as PlayerRow[]);
+    }
+
     const ch = supabase
       .channel(`room-${roomId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "rooms", filter: `id=eq.${roomId}` },
@@ -104,7 +115,15 @@ function RoomPage() {
           });
         })
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+
+    // Safety net: poll every 2.5s so the UI stays in sync even if the
+    // realtime websocket drops or is slow to deliver an event.
+    const interval = window.setInterval(refetch, 2500);
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+      supabase.removeChannel(ch);
+    };
   }, [roomId]);
 
   const me = useMemo(
