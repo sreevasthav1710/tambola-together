@@ -14,6 +14,30 @@ export const Route = createFileRoute("/")({
   component: Home,
 });
 
+function createPlayerId() {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return cryptoApi.randomUUID();
+  }
+
+  if (typeof cryptoApi?.getRandomValues === "function") {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    return [...bytes]
+      .map((byte, index) => {
+        const value = byte.toString(16).padStart(2, "0");
+        return [4, 6, 8, 10].includes(index) ? `-${value}` : value;
+      })
+      .join("");
+  }
+
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (char) =>
+    (Number(char) ^ (Math.random() * 16) >> (Number(char) / 4)).toString(16),
+  );
+}
+
 function Home() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-10 bg-gradient-to-br from-[oklch(0.18_0.04_290)] via-[oklch(0.22_0.06_290)] to-[oklch(0.14_0.04_290)]">
@@ -52,7 +76,7 @@ function CreateRoomDialog() {
     setBusy(true);
     try {
       const roomId = generateRoomCode();
-      const playerId = crypto.randomUUID();
+      const playerId = createPlayerId();
       const ticket = generateTicket();
 
       const { error: rErr } = await supabase.from("rooms").insert({
@@ -162,7 +186,7 @@ function JoinRoomDialog() {
       if (!room) return toast.error("Room not found");
       if (room.status === "ended") return toast.error("This game has ended");
 
-      const playerId = crypto.randomUUID();
+      const playerId = createPlayerId();
       const ticket = generateTicket();
       const { error: pErr } = await supabase.from("players").insert({
         id: playerId,
