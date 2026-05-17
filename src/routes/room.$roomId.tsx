@@ -156,10 +156,17 @@ function RoomPage() {
     if (remaining.length === 0) return toast.error("All numbers called");
     const pick = remaining[Math.floor(Math.random() * remaining.length)];
     const newCalled = [...room.called_numbers, pick];
-    const updates: Partial<RoomRow> = { called_numbers: newCalled };
-    if (room.status === "waiting") updates.status = "playing";
-    const { error } = await supabase.from("rooms").update(updates).eq("id", room.id);
-    if (error) toast.error(error.message);
+    const newStatus = room.status === "waiting" ? "playing" : room.status;
+    // Optimistic local update so the host gets instant feedback.
+    setRoom({ ...room, called_numbers: newCalled, status: newStatus });
+    const { error } = await supabase
+      .from("rooms")
+      .update({ called_numbers: newCalled, status: newStatus })
+      .eq("id", room.id);
+    if (error) {
+      toast.error(error.message);
+      setRoom(room); // rollback
+    }
   }, [room, isHost, called]);
 
   const handleClaim = useCallback(async (type: ClaimType) => {
