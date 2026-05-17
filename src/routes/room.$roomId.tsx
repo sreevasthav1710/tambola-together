@@ -375,6 +375,28 @@ function RoomPage() {
         </div>
       )}
 
+      {/* Mobile sticky bottom bar: last number + next-number control */}
+      {room.status !== "ended" && (
+        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 border-t border-border bg-card/95 backdrop-blur px-3 py-2 flex items-center gap-3 shadow-[0_-4px_20px_rgba(0,0,0,0.4)]">
+          <div className="number-ball number-ball-called w-14 h-14 text-2xl shrink-0">
+            {lastNumber ?? "—"}
+          </div>
+          <div className="text-xs text-muted-foreground shrink-0">
+            <div className="font-bold text-base text-foreground">{room.called_numbers.length}/90</div>
+            <div>called</div>
+          </div>
+          {isHost ? (
+            <Button onClick={handleNextNumber} className="flex-1 h-14 text-base font-bold">
+              🎲 Next Number
+            </Button>
+          ) : (
+            <div className="flex-1 text-xs text-center text-muted-foreground">
+              Waiting for host…
+            </div>
+          )}
+        </div>
+      )}
+
       <AlertDialog open={exitOpen} onOpenChange={setExitOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
