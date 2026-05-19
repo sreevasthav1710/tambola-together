@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getIdentity, clearIdentity } from "@/lib/playerStore";
@@ -13,6 +13,8 @@ import { TambolaTicket } from "@/components/TambolaTicket";
 import {
   validateClaim, CLAIM_LABELS, type ClaimType, type Ticket,
 } from "@/lib/tambola";
+
+const CLAIM_TYPES: ClaimType[] = ["ff", "line1", "line2", "line3", "housie"];
 
 interface RoomRow {
   id: string;
@@ -51,6 +53,16 @@ function RoomPage() {
   const [players, setPlayers] = useState<PlayerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [exitOpen, setExitOpen] = useState(false);
+  const [celebration, setCelebration] = useState<{
+    id: string;
+    label: string;
+    playerName: string;
+    prize: number;
+    purse?: number;
+  } | null>(null);
+  const autoAwarding = useRef<Set<ClaimType>>(new Set());
+  const previousClaimed = useRef<Record<string, string | string[]> | null>(null);
+  const celebratedClaims = useRef<Set<string>>(new Set());
 
   // Redirect home if no identity for this room.
   useEffect(() => {
@@ -169,24 +181,15 @@ function RoomPage() {
     }
   }, [room, isHost, called]);
 
-  const handleClaim = useCallback(async (type: ClaimType) => {
+  const awardPrize = useCallback(async (type: ClaimType) => {
     if (!me || !room) return;
     if (room.status !== "playing" && room.status !== "waiting") return;
 
     const result = validateClaim(type, me.ticket, room.called_numbers, me.marked_numbers);
-    const prize =
-      type === "ff" ? room.prize_ff :
-      type === "line1" ? room.prize_line1 :
-      type === "line2" ? room.prize_line2 :
-      type === "line3" ? room.prize_line3 :
-      room.prize_housie;
+    const prize = prizeFor(room, type);
     const claimed = { ...(room.claimed || {}) };
 
     if (!result.ok) {
-      // bogey - deduct prize
-      const newPurse = me.purse - prize;
-      await supabase.from("players").update({ purse: newPurse }).eq("id", me.id);
-      toast.error(`Bogey! ${result.reason}. -${prize} from your purse.`);
       return;
     }
 
@@ -212,11 +215,66 @@ function RoomPage() {
     }
     const res = data as { ok: boolean; reason?: string } | null;
     if (!res?.ok) {
-      toast.error(res?.reason ?? "Claim rejected");
+      const reason = res?.reason ?? "Prize already awarded";
+      if (!/already claimed|already awarded|all housies/i.test(reason)) toast.error(reason);
       return;
     }
-    toast.success(`🎉 ${CLAIM_LABELS[type]}! +${prize}`);
+    const claimId = `${type}:${me.id}`;
+    celebratedClaims.current.add(claimId);
+    setCelebration({
+      id: `${claimId}:${Date.now()}`,
+      label: CLAIM_LABELS[type],
+      playerName: me.name,
+      prize,
+      purse: me.purse + prize,
+    });
+    toast.success(`${CLAIM_LABELS[type]} awarded! +${prize}`);
   }, [me, room]);
+
+  useEffect(() => {
+    if (!me || !room) return;
+    if (room.status !== "playing" && room.status !== "waiting") return;
+
+    for (const type of CLAIM_TYPES) {
+      if (autoAwarding.current.has(type)) continue;
+      if (isPrizeClaimed(room, type, me.id)) continue;
+
+      const result = validateClaim(type, me.ticket, room.called_numbers, me.marked_numbers);
+      if (!result.ok) continue;
+
+      autoAwarding.current.add(type);
+      void awardPrize(type).finally(() => {
+        autoAwarding.current.delete(type);
+      });
+    }
+  }, [awardPrize, me, room]);
+
+  useEffect(() => {
+    if (!room) return;
+    const previous = previousClaimed.current;
+    previousClaimed.current = room.claimed || {};
+    if (!previous) return;
+
+    for (const type of CLAIM_TYPES) {
+      const before = playerIdsForClaim(previous[type]);
+      const after = playerIdsForClaim(room.claimed?.[type]);
+      const winnerId = after.find((id) => !before.includes(id));
+      if (!winnerId) continue;
+
+      const claimId = `${type}:${winnerId}`;
+      if (celebratedClaims.current.has(claimId)) continue;
+      celebratedClaims.current.add(claimId);
+
+      const player = players.find((p) => p.id === winnerId);
+      setCelebration({
+        id: `${claimId}:${Date.now()}`,
+        label: CLAIM_LABELS[type],
+        playerName: player?.name ?? "Player",
+        prize: prizeFor(room, type),
+        purse: player?.purse,
+      });
+    }
+  }, [players, room]);
 
   function handleExit() {
     if (!identity) { navigate({ to: "/" }); return; }
@@ -308,20 +366,7 @@ function RoomPage() {
               playerName={me.name}
             />
 
-            {/* Claim buttons */}
-            <Card className="p-3 sm:p-4">
-              <div className="text-sm font-semibold mb-2 sm:mb-3">Claim a prize</div>
-              <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
-                <ClaimBtn label="Fast 5" prize={room.prize_ff} disabled={!!room.claimed.ff} onClick={() => handleClaim("ff")} />
-                <ClaimBtn label="Top" prize={room.prize_line1} disabled={!!room.claimed.line1} onClick={() => handleClaim("line1")} />
-                <ClaimBtn label="Middle" prize={room.prize_line2} disabled={!!room.claimed.line2} onClick={() => handleClaim("line2")} />
-                <ClaimBtn label="Bottom" prize={room.prize_line3} disabled={!!room.claimed.line3} onClick={() => handleClaim("line3")} />
-                <ClaimBtn label="Housie" prize={room.prize_housie} disabled={room.housies_won >= room.housies_allowed} onClick={() => handleClaim("housie")} />
-              </div>
-              <p className="text-[11px] sm:text-xs text-muted-foreground mt-2">
-                Bogey deducts prize. Purse: <span className="text-primary font-semibold">{me.purse}</span>
-              </p>
-            </Card>
+            <PrizeWatchPanel room={room} me={me} celebration={celebration} />
 
             {/* Called numbers board */}
             <Card className="p-3 sm:p-4">
@@ -418,12 +463,97 @@ function RoomPage() {
   );
 }
 
-function ClaimBtn({ label, prize, disabled, onClick }: { label: string; prize: number; disabled?: boolean; onClick: () => void }) {
+function prizeFor(room: RoomRow, type: ClaimType) {
+  if (type === "ff") return room.prize_ff;
+  if (type === "line1") return room.prize_line1;
+  if (type === "line2") return room.prize_line2;
+  if (type === "line3") return room.prize_line3;
+  return room.prize_housie;
+}
+
+function playerIdsForClaim(claim: string | string[] | undefined) {
+  if (!claim) return [];
+  return Array.isArray(claim) ? claim : [claim];
+}
+
+function isPrizeClaimed(room: RoomRow, type: ClaimType, playerId: string) {
+  const claim = room.claimed?.[type];
+  if (type === "housie") {
+    const winners = playerIdsForClaim(claim);
+    return winners.includes(playerId) || winners.length >= room.housies_allowed;
+  }
+  return !!claim;
+}
+
+function PrizeWatchPanel({
+  room,
+  me,
+  celebration,
+}: {
+  room: RoomRow;
+  me: PlayerRow;
+  celebration: {
+    id: string;
+    label: string;
+    playerName: string;
+    prize: number;
+    purse?: number;
+  } | null;
+}) {
   return (
-    <Button variant={disabled ? "secondary" : "default"} disabled={disabled} onClick={onClick} className="h-auto py-2 flex-col">
-      <span className="text-xs">{label}</span>
-      <span className="text-sm font-bold">{prize}</span>
-    </Button>
+    <Card className="overflow-hidden">
+      {celebration ? (
+        <div key={celebration.id} className="border-b border-primary/30 bg-primary/15 px-4 py-4 sm:px-5">
+          <div className="text-xs font-semibold uppercase text-primary">Prize unlocked</div>
+          <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-2xl font-bold">{celebration.label}</div>
+              <div className="text-sm text-muted-foreground">
+                {celebration.playerName} won {celebration.prize}
+              </div>
+            </div>
+            <div className="text-left sm:text-right">
+              <div className="text-xs text-muted-foreground">Prize</div>
+              <div className="text-3xl font-black text-primary">+{celebration.prize}</div>
+              {typeof celebration.purse === "number" && (
+                <div className="text-xs text-muted-foreground">Purse {celebration.purse}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <div className="p-3 sm:p-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <div className="text-sm font-semibold">Automatic prize check</div>
+            <div className="text-xs text-muted-foreground">Prizes are awarded as soon as your marked ticket qualifies.</div>
+          </div>
+          <div className="rounded-md bg-muted px-3 py-2 text-right">
+            <div className="text-[10px] uppercase text-muted-foreground">Purse</div>
+            <div className="text-lg font-bold text-primary">{me.purse}</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {CLAIM_TYPES.map((type) => (
+            <PrizeStatus key={type} room={room} type={type} />
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function PrizeStatus({ room, type }: { room: RoomRow; type: ClaimType }) {
+  const winners = playerIdsForClaim(room.claimed?.[type]);
+  const claimed = type === "housie" ? winners.length >= room.housies_allowed : winners.length > 0;
+  return (
+    <div className={`rounded-md border p-3 ${claimed ? "border-primary/40 bg-primary/10" : "border-border bg-muted/40"}`}>
+      <div className="text-xs font-semibold">{CLAIM_LABELS[type]}</div>
+      <div className="mt-1 text-lg font-bold">{prizeFor(room, type)}</div>
+      <div className="mt-1 text-[11px] text-muted-foreground">
+        {type === "housie" ? `${winners.length}/${room.housies_allowed} won` : claimed ? "Awarded" : "Watching"}
+      </div>
+    </div>
   );
 }
 
