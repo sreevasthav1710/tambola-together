@@ -62,12 +62,15 @@ export type Database = {
           housies_allowed: number
           housies_won: number
           id: string
+          pin: string | null
           prize_ff: number
           prize_housie: number
           prize_line1: number
           prize_line2: number
           prize_line3: number
+          room_name: string
           status: string
+          visibility: string
         }
         Insert: {
           called_numbers?: number[]
@@ -78,12 +81,15 @@ export type Database = {
           housies_allowed?: number
           housies_won?: number
           id: string
+          pin?: string | null
           prize_ff?: number
           prize_housie?: number
           prize_line1?: number
           prize_line2?: number
           prize_line3?: number
+          room_name?: string
           status?: string
+          visibility?: string
         }
         Update: {
           called_numbers?: number[]
@@ -94,12 +100,15 @@ export type Database = {
           housies_allowed?: number
           housies_won?: number
           id?: string
+          pin?: string | null
           prize_ff?: number
           prize_housie?: number
           prize_line1?: number
           prize_line2?: number
           prize_line3?: number
+          room_name?: string
           status?: string
+          visibility?: string
         }
         Relationships: []
       }

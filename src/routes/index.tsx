@@ -1,14 +1,25 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Lock, RefreshCw, UserRound } from "lucide-react";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { generateRoomCode, generateTicket } from "@/lib/tambola";
-import { setIdentity } from "@/lib/playerStore";
+import { getProfile, setIdentity, setProfile } from "@/lib/playerStore";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -34,35 +45,91 @@ function createPlayerId() {
   }
 
   return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (char) =>
-    (Number(char) ^ (Math.random() * 16) >> (Number(char) / 4)).toString(16),
+    (Number(char) ^ ((Math.random() * 16) >> (Number(char) / 4))).toString(16),
   );
 }
 
 function Home() {
+  const [displayName, setDisplayName] = useState("");
+
+  useEffect(() => {
+    setDisplayName(getProfile().displayName);
+  }, []);
+
+  function saveDisplayName(nextName: string) {
+    const trimmed = nextName.trim();
+    setDisplayName(trimmed);
+    setProfile({ displayName: trimmed });
+    toast.success("Profile updated");
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-10 bg-gradient-to-br from-[oklch(0.18_0.04_290)] via-[oklch(0.22_0.06_290)] to-[oklch(0.14_0.04_290)]">
+      <div className="fixed right-4 top-4 z-10">
+        <ProfileDialog displayName={displayName} onSave={saveDisplayName} />
+      </div>
+
       <div className="text-center mb-10">
-        <div className="text-6xl mb-3">🎱</div>
+        <div className="text-6xl mb-3">Tambola</div>
         <h1 className="text-5xl md:text-6xl font-bold text-primary tracking-tight">Tambola Live</h1>
-        <p className="text-muted-foreground mt-3 text-lg">Play Housie with friends — anywhere.</p>
+        <p className="text-muted-foreground mt-3 text-lg">Play Housie with friends, anywhere.</p>
       </div>
 
       <Card className="w-full max-w-md p-6 space-y-3">
-        <CreateRoomDialog />
-        <JoinRoomDialog />
+        <CreateRoomDialog displayName={displayName} />
+        <JoinRoomDialog displayName={displayName} />
       </Card>
 
       <p className="text-xs text-muted-foreground mt-8 max-w-md text-center">
-        Share the room code with friends. Host calls numbers; players mark their tickets and claim prizes.
+        Create named rooms, choose public or private access, and join with your saved profile name.
       </p>
     </div>
   );
 }
 
-function CreateRoomDialog() {
+function ProfileDialog({ displayName, onSave }: { displayName: string; onSave: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(displayName);
+
+  useEffect(() => {
+    if (open) setDraft(displayName);
+  }, [displayName, open]);
+
+  function handleSave() {
+    if (!draft.trim()) return toast.error("Enter a display name");
+    onSave(draft);
+    setOpen(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="icon" aria-label="Edit profile">
+          <UserRound className="h-5 w-5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Profile</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label>Default display name</Label>
+            <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Your name" />
+          </div>
+          <Button onClick={handleSave} className="w-full">Save Profile</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CreateRoomDialog({ displayName }: { displayName: string }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
+  const [roomName, setRoomName] = useState("");
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [pin, setPin] = useState("");
   const [ff, setFf] = useState(50);
   const [l1, setL1] = useState(50);
   const [l2, setL2] = useState(50);
@@ -72,7 +139,13 @@ function CreateRoomDialog() {
   const [busy, setBusy] = useState(false);
 
   async function handleCreate() {
-    if (!name.trim()) return toast.error("Please enter your name");
+    const hostName = displayName.trim();
+    const cleanRoomName = roomName.trim();
+    const cleanPin = pin.trim();
+    if (!hostName) return toast.error("Set your profile display name first");
+    if (!cleanRoomName) return toast.error("Enter a room name");
+    if (visibility === "private" && !cleanPin) return toast.error("Set a private room PIN");
+
     setBusy(true);
     try {
       const roomId = generateRoomCode();
@@ -82,7 +155,10 @@ function CreateRoomDialog() {
       const { error: rErr } = await supabase.from("rooms").insert({
         id: roomId,
         host_player_id: playerId,
-        host_name: name.trim(),
+        host_name: hostName,
+        room_name: cleanRoomName,
+        visibility,
+        pin: visibility === "private" ? cleanPin : null,
         prize_ff: ff,
         prize_line1: l1,
         prize_line2: l2,
@@ -95,13 +171,13 @@ function CreateRoomDialog() {
       const { error: pErr } = await supabase.from("players").insert({
         id: playerId,
         room_id: roomId,
-        name: name.trim(),
+        name: hostName,
         ticket: ticket as never,
       });
       if (pErr) throw pErr;
 
-      setIdentity(roomId, playerId, name.trim());
-      toast.success(`Room ${roomId} created`);
+      setIdentity(roomId, playerId, hostName);
+      toast.success(`${cleanRoomName} created`);
       navigate({ to: "/room/$roomId", params: { roomId } });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to create room";
@@ -122,9 +198,23 @@ function CreateRoomDialog() {
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label>Your display name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Host name" />
+            <Label>Room name</Label>
+            <Input value={roomName} onChange={(e) => setRoomName(e.target.value)} placeholder="Friday Housie Night" />
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant={visibility === "public" ? "default" : "outline"} onClick={() => setVisibility("public")}>
+              Public
+            </Button>
+            <Button type="button" variant={visibility === "private" ? "default" : "outline"} onClick={() => setVisibility("private")}>
+              Private
+            </Button>
+          </div>
+          {visibility === "private" && (
+            <div>
+              <Label>Room PIN</Label>
+              <Input value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Set a PIN" type="password" />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <PrizeInput label="Fastest Five" value={ff} onChange={setFf} />
             <PrizeInput label="Top Line" value={l1} onChange={setL1} />
@@ -164,40 +254,100 @@ function PrizeInput({ label, value, onChange }: { label: string; value: number; 
   );
 }
 
-function JoinRoomDialog() {
+type LobbyRoom = {
+  id: string;
+  room_name: string;
+  host_name: string;
+  visibility: string;
+  pin: string | null;
+  status: string;
+  created_at: string;
+  players?: { id: string; name?: string }[];
+};
+
+function JoinRoomDialog({ displayName }: { displayName: string }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [code, setCode] = useState("");
-  const [name, setName] = useState("");
+  const [rooms, setRooms] = useState<LobbyRoom[]>([]);
+  const [selectedRoom, setSelectedRoom] = useState<LobbyRoom | null>(null);
+  const [pin, setPin] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (open) void loadRooms();
+  }, [open]);
+
+  async function loadRooms() {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("rooms")
+        .select("id,room_name,host_name,visibility,pin,status,created_at,players(id,name)")
+        .in("status", ["waiting", "playing"])
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const openRooms = ((data ?? []) as LobbyRoom[]).filter((room) => (room.players?.length ?? 0) > 0);
+      setRooms(openRooms);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to load rooms";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function requestJoin(room: LobbyRoom) {
+    if (!displayName.trim()) return toast.error("Set your profile display name first");
+    setSelectedRoom(room);
+    if (room.visibility === "private" && pin.trim() !== (room.pin ?? "")) {
+      return toast.error("Enter the correct private room PIN");
+    }
+    setConfirmOpen(true);
+  }
+
   async function handleJoin() {
-    const roomId = code.trim().toUpperCase();
-    if (!roomId) return toast.error("Enter a room code");
-    if (!name.trim()) return toast.error("Enter your name");
+    const room = selectedRoom;
+    const playerName = displayName.trim();
+    if (!room) return;
+    if (!playerName) return toast.error("Set your profile display name first");
+
     setBusy(true);
     try {
-      const { data: room, error: rErr } = await supabase
+      const { data: freshRoom, error: rErr } = await supabase
         .from("rooms")
-        .select("id,status")
-        .eq("id", roomId)
+        .select("id,status,players(id,name)")
+        .eq("id", room.id)
         .maybeSingle();
       if (rErr) throw rErr;
-      if (!room) return toast.error("Room not found");
-      if (room.status === "ended") return toast.error("This game has ended");
+      if (!freshRoom) return toast.error("Room not found");
+      if (freshRoom.status === "ended") return toast.error("This game has ended");
+      if (freshRoom.status === "stopped") return toast.error("This room is stopped");
+      if (!["waiting", "playing"].includes(freshRoom.status)) return toast.error("This room is not open");
+      const currentPlayers = ((freshRoom as unknown as LobbyRoom).players ?? []);
+      if (currentPlayers.length === 0) return toast.error("This room is empty");
+      if (currentPlayers.some((player) => player.name?.trim().toLowerCase() === playerName.toLowerCase())) {
+        return toast.error("That display name is already in this room");
+      }
 
       const playerId = createPlayerId();
       const ticket = generateTicket();
       const { error: pErr } = await supabase.from("players").insert({
         id: playerId,
-        room_id: roomId,
-        name: name.trim(),
+        room_id: room.id,
+        name: playerName,
         ticket: ticket as never,
       });
-      if (pErr) throw pErr;
+      if (pErr) {
+        if (pErr.code === "23505") {
+          return toast.error("That display name is already in this room");
+        }
+        throw pErr;
+      }
 
-      setIdentity(roomId, playerId, name.trim());
-      navigate({ to: "/room/$roomId", params: { roomId } });
+      setIdentity(room.id, playerId, playerName);
+      navigate({ to: "/room/$roomId", params: { roomId: room.id } });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to join";
       toast.error(msg);
@@ -211,24 +361,63 @@ function JoinRoomDialog() {
       <DialogTrigger asChild>
         <Button size="lg" variant="secondary" className="w-full text-lg h-14">Join Room</Button>
       </DialogTrigger>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Join a room</DialogTitle>
+          <DialogTitle>Open rooms</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label>Room code</Label>
-            <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="e.g. AB23CD" maxLength={6} />
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm text-muted-foreground">
+              Joining as <span className="font-semibold text-foreground">{displayName || "Profile name missing"}</span>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={loadRooms} disabled={loading} aria-label="Refresh rooms">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
           </div>
-          <div>
-            <Label>Your display name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
+          <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+            {loading ? (
+              <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">Loading rooms...</div>
+            ) : rooms.length === 0 ? (
+              <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">No open rooms right now.</div>
+            ) : rooms.map((room) => (
+              <div key={room.id} className="rounded-md border border-border bg-card p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="truncate font-semibold">{room.room_name || `Room ${room.id}`}</div>
+                      {room.visibility === "private" && <Lock className="h-4 w-4 text-muted-foreground" />}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Code {room.id} - Host {room.host_name} - {room.status}</div>
+                  </div>
+                  <Button type="button" size="sm" onClick={() => requestJoin(room)}>Join</Button>
+                </div>
+                {selectedRoom?.id === room.id && room.visibility === "private" && (
+                  <div className="mt-3">
+                    <Label>Private room PIN</Label>
+                    <Input value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Enter PIN" type="password" />
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-          <Button onClick={handleJoin} disabled={busy} className="w-full">
-            {busy ? "Joining..." : "Join"}
-          </Button>
         </div>
       </DialogContent>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Join {selectedRoom?.room_name || "this room"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will enter as {displayName || "your profile name"} and receive a new Tambola ticket.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleJoin} disabled={busy}>
+              {busy ? "Joining..." : "Join Room"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

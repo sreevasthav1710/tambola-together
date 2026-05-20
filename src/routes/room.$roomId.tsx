@@ -20,6 +20,9 @@ interface RoomRow {
   id: string;
   host_player_id: string;
   host_name: string;
+  room_name: string;
+  visibility: string;
+  pin: string | null;
   prize_ff: number;
   prize_line1: number;
   prize_line2: number;
@@ -143,12 +146,13 @@ function RoomPage() {
     [players, identity],
   );
   const isHost = !!(room && identity && room.host_player_id === identity.playerId);
+  const isActiveRoom = room?.status === "waiting" || room?.status === "playing";
   const called = useMemo(() => new Set(room?.called_numbers ?? []), [room]);
   const marked = useMemo(() => new Set(me?.marked_numbers ?? []), [me]);
 
   const handleCellClick = useCallback(async (n: number) => {
     if (!me || !room) return;
-    if (room.status === "ended") return;
+    if (room.status !== "waiting" && room.status !== "playing") return;
     if (!called.has(n)) {
       toast.error("Number has not arrived yet");
       return;
@@ -162,7 +166,7 @@ function RoomPage() {
 
   const handleNextNumber = useCallback(async () => {
     if (!room || !isHost) return;
-    if (room.status === "ended") return;
+    if (room.status !== "waiting" && room.status !== "playing") return;
     const all = Array.from({ length: 90 }, (_, i) => i + 1);
     const remaining = all.filter((n) => !called.has(n));
     if (remaining.length === 0) return toast.error("All numbers called");
@@ -180,6 +184,19 @@ function RoomPage() {
       setRoom(room); // rollback
     }
   }, [room, isHost, called]);
+
+  const handleRoomStatus = useCallback(async (status: "waiting" | "stopped") => {
+    if (!room || !isHost || room.status === "ended" || room.status === status) return;
+    const previous = room;
+    setRoom({ ...room, status });
+    const { error } = await supabase.from("rooms").update({ status }).eq("id", room.id);
+    if (error) {
+      toast.error(error.message);
+      setRoom(previous);
+      return;
+    }
+    toast.success(status === "stopped" ? "Room stopped" : "Room started");
+  }, [isHost, room]);
 
   const awardPrize = useCallback(async (type: ClaimType) => {
     if (!me || !room) return;
@@ -311,12 +328,19 @@ function RoomPage() {
     <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-24 md:pb-6">
       <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">Room {room.id}</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">{room.room_name || `Room ${room.id}`}</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Host: {room.host_name}{isHost && " (you)"} · {players.length}P · Housie {room.housies_won}/{room.housies_allowed}
+            Code {room.id} · Host: {room.host_name}{isHost && " (you)"} · {players.length}P · Housie {room.housies_won}/{room.housies_allowed}
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
+          {isHost && room.status !== "ended" && (
+            room.status === "stopped" ? (
+              <Button variant="default" size="sm" onClick={() => void handleRoomStatus("waiting")}>Start</Button>
+            ) : (
+              <Button variant="secondary" size="sm" onClick={() => void handleRoomStatus("stopped")}>Stop</Button>
+            )
+          )}
           <Button variant="outline" size="sm" onClick={() => {
             navigator.clipboard.writeText(room.id);
             toast.success("Room code copied");
@@ -330,6 +354,11 @@ function RoomPage() {
       ) : (
         <div className="grid md:grid-cols-[1fr_320px] gap-4 md:gap-6">
           <div className="space-y-4 md:space-y-6">
+            {room.status === "stopped" && (
+              <Card className="p-4 text-sm text-muted-foreground">
+                This room is stopped. The host can start it again when players should be able to join and play.
+              </Card>
+            )}
             {/* Last number + controls — hidden on mobile (replaced by sticky bottom bar) */}
             <Card className="p-4 md:p-5 hidden md:flex flex-col sm:flex-row items-center gap-5">
               <div className="flex items-center gap-4">
@@ -346,12 +375,12 @@ function RoomPage() {
               </div>
               <div className="flex-1 w-full sm:w-auto">
                 {isHost ? (
-                  <Button onClick={handleNextNumber} size="lg" className="w-full h-16 text-xl">
+                  <Button onClick={handleNextNumber} size="lg" className="w-full h-16 text-xl" disabled={!isActiveRoom}>
                     🎲 Next Number
                   </Button>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center">
-                    Waiting for host to call the next number…
+                    {room.status === "stopped" ? "Room is stopped by the host." : "Waiting for host to call the next number…"}
                   </p>
                 )}
               </div>
@@ -429,12 +458,12 @@ function RoomPage() {
             <div>called</div>
           </div>
           {isHost ? (
-            <Button onClick={handleNextNumber} className="flex-1 h-14 text-base font-bold">
+            <Button onClick={handleNextNumber} className="flex-1 h-14 text-base font-bold" disabled={!isActiveRoom}>
               🎲 Next Number
             </Button>
           ) : (
             <div className="flex-1 text-xs text-center text-muted-foreground">
-              Waiting for host…
+              {room.status === "stopped" ? "Room stopped" : "Waiting for host…"}
             </div>
           )}
         </div>
