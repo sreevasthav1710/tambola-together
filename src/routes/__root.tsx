@@ -73,15 +73,23 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Tambola Live — Play Housie with Friends" },
+      { title: "Tambola Live - Play Housie with Friends Online" },
       { name: "description", content: "Create a room, share the code, and play Tambola/Housie live with your friends online." },
       { name: "author", content: "Tambola Live" },
-      { property: "og:title", content: "Tambola Live" },
+      { name: "robots", content: "index, follow" },
+      { property: "og:title", content: "Tambola Live - Play Housie with Friends Online" },
       { property: "og:description", content: "Create a room, share the code, and play Tambola/Housie live with friends online." },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://tambola-sreevasthav1710.vercel.app/" },
       { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: "Tambola Live - Play Housie with Friends Online" },
+      { name: "twitter:description", content: "Create a room, share the code, and play Tambola/Housie live with friends online." },
     ],
     links: [
+      {
+        rel: "canonical",
+        href: "https://tambola-sreevasthav1710.vercel.app/",
+      },
       {
         rel: "icon",
         type: "image/svg+xml",

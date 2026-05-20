@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://tambola-sreevasthav1710.vercel.app/sitemap.xml
