@@ -727,6 +727,34 @@ function SnakeLadderRoom({
   const takenColors = playerStates
     .filter((player) => player.id !== me.id)
     .map((player) => player.color);
+  const mobilePrimaryAction =
+    isHost && room.status === "waiting"
+      ? {
+          label: "Start Game",
+          onClick: startGame,
+          disabled: !canStart || busy,
+          variant: "default" as const,
+        }
+      : isHost && room.status === "playing"
+        ? {
+            label: "Pause Game",
+            onClick: () => void handlePauseResume("stopped"),
+            disabled: busy,
+            variant: "secondary" as const,
+          }
+        : isHost && room.status === "stopped"
+          ? {
+              label: "Resume Game",
+              onClick: () => void handlePauseResume("playing"),
+              disabled: busy,
+              variant: "default" as const,
+            }
+          : {
+              label: "Roll Dice",
+              onClick: handleRollDice,
+              disabled: !canRoll,
+              variant: "default" as const,
+            };
 
   async function startGame() {
     if (!isHost) return;
@@ -934,7 +962,7 @@ function SnakeLadderRoom({
   }
 
   return (
-    <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto">
+    <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-28 lg:pb-6">
       <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">
@@ -1005,7 +1033,7 @@ function SnakeLadderRoom({
               </div>
             ) : null}
 
-            <div className="mt-4 grid gap-2">
+            <div className="mt-4 hidden gap-2 lg:grid">
               {isHost && room.status === "waiting" && (
                 <Button onClick={startGame} disabled={!canStart || busy} className="h-12">
                   Start Game
@@ -1115,6 +1143,31 @@ function SnakeLadderRoom({
             </ul>
           </Card>
         </aside>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-3 py-3 shadow-[0_-0.5rem_1.5rem_oklch(0_0_0_/_0.35)] backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-7xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-bold text-primary">{turnLabel}</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {winner
+                ? `${winner.name} won`
+                : room.status === "playing"
+                  ? `${activePlayer?.name ?? "Player"} rolls next`
+                  : players.length < MIN_PLAYERS
+                    ? `Need ${MIN_PLAYERS - players.length} more player`
+                    : "Ready to start"}
+            </div>
+          </div>
+          <Button
+            onClick={mobilePrimaryAction.onClick}
+            disabled={mobilePrimaryAction.disabled}
+            variant={mobilePrimaryAction.variant}
+            className="h-12 min-w-36 text-base font-bold"
+          >
+            {mobilePrimaryAction.label}
+          </Button>
+        </div>
       </div>
     </div>
   );
