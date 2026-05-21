@@ -632,12 +632,6 @@ function RoomPage() {
           <div className="number-ball number-ball-called w-14 h-14 text-2xl shrink-0">
             {lastNumber ?? "—"}
           </div>
-          <div className="text-xs text-muted-foreground shrink-0">
-            <div className="font-bold text-base text-foreground">
-              {room.called_numbers.length}/90
-            </div>
-            <div>called</div>
-          </div>
           {isHost ? (
             <Button
               onClick={handleNextNumber}
