@@ -1,4 +1,4 @@
-@import "tailwindcss" source(none);
+@import "tailwindcss";
 @source "../src";
 @import "tw-animate-css";
 
@@ -182,4 +182,235 @@
     background: radial-gradient(circle at 30% 30%, oklch(0.7 0.18 25), var(--tambola-red));
     color: var(--tambola-cream);
   }
+  .dice-shell {
+    width: 4rem;
+    height: 4rem;
+    perspective: 520px;
+    display: grid;
+    place-items: center;
+    filter: drop-shadow(0 0.8rem 1.1rem oklch(0 0 0 / 0.35));
+  }
+  .dice-cube {
+    position: relative;
+    width: 3.1rem;
+    height: 3.1rem;
+    transform-style: preserve-3d;
+    --dice-face-transform: rotateX(-12deg) rotateY(16deg) rotateZ(0deg);
+    transform: var(--dice-face-transform);
+    transition: transform 760ms cubic-bezier(0.16, 0.9, 0.2, 1);
+    will-change: transform;
+  }
+  .dice-rolling {
+    animation: dice-tumble 920ms cubic-bezier(0.16, 0.86, 0.24, 1) both;
+  }
+  .dice-side {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 0.18rem;
+    padding: 0.42rem;
+    border: 1px solid oklch(0.98 0.01 90 / 0.85);
+    border-radius: 0.55rem;
+    background:
+      radial-gradient(circle at 28% 22%, oklch(1 0 0), oklch(0.92 0.02 85) 58%, oklch(0.78 0.03 80));
+    box-shadow:
+      inset -0.3rem -0.35rem 0.75rem oklch(0 0 0 / 0.16),
+      inset 0.18rem 0.18rem 0.55rem oklch(1 0 0 / 0.78),
+      0 0.7rem 1.25rem oklch(0 0 0 / 0.35);
+  }
+  .dice-pip {
+    align-self: center;
+    justify-self: center;
+    width: 0.46rem;
+    height: 0.46rem;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, oklch(0.32 0.03 30), oklch(0.08 0.02 30));
+    box-shadow: inset 0.05rem 0.06rem 0.08rem oklch(0 0 0 / 0.75);
+  }
+  .dice-side-1 { transform: rotateY(0deg) translateZ(1.55rem); }
+  .dice-side-2 { transform: rotateY(90deg) translateZ(1.55rem); }
+  .dice-side-3 { transform: rotateX(90deg) translateZ(1.55rem); }
+  .dice-side-4 { transform: rotateX(-90deg) translateZ(1.55rem); }
+  .dice-side-5 { transform: rotateY(-90deg) translateZ(1.55rem); }
+  .dice-side-6 { transform: rotateY(180deg) translateZ(1.55rem); }
+  .dice-face-1 { --dice-face-transform: rotateX(-12deg) rotateY(16deg) rotateZ(0deg); }
+  .dice-face-2 { --dice-face-transform: rotateX(-12deg) rotateY(-74deg) rotateZ(0deg); }
+  .dice-face-3 { --dice-face-transform: rotateX(-104deg) rotateY(12deg) rotateZ(0deg); }
+  .dice-face-4 { --dice-face-transform: rotateX(76deg) rotateY(12deg) rotateZ(0deg); }
+  .dice-face-5 { --dice-face-transform: rotateX(-12deg) rotateY(106deg) rotateZ(0deg); }
+  .dice-face-6 { --dice-face-transform: rotateX(-12deg) rotateY(196deg) rotateZ(0deg); }
+  @keyframes dice-tumble {
+    0% {
+      transform: var(--dice-face-transform) rotateX(0deg) rotateY(0deg) rotateZ(0deg) scale(1);
+    }
+    30% {
+      transform: var(--dice-face-transform) rotateX(230deg) rotateY(-170deg) rotateZ(54deg) scale(1.08);
+    }
+    62% {
+      transform: var(--dice-face-transform) rotateX(510deg) rotateY(-385deg) rotateZ(128deg) scale(1.03);
+    }
+    84% {
+      transform: var(--dice-face-transform) rotateX(690deg) rotateY(-524deg) rotateZ(172deg) scale(0.98);
+    }
+    100% {
+      transform: var(--dice-face-transform) scale(1);
+    }
+  }
 }
+
+  /* Player puck animation for Snake N Ladder board */
+  .player-puck {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1.35rem;
+    height: 1.35rem;
+    transform-origin: center;
+    pointer-events: none;
+    display: grid;
+    place-items: center;
+    transition:
+      left 400ms cubic-bezier(0.2,0.9,0.2,1),
+      top 400ms cubic-bezier(0.2,0.9,0.2,1);
+  }
+  .player-puck-inner {
+    width: 100%;
+    height: 100%;
+    border-radius: 9999px;
+    border: 2px solid oklch(1 0 0 / 0.92);
+    background:
+      radial-gradient(circle at 30% 24%, oklch(1 0 0 / 0.72) 0 12%, transparent 13%),
+      radial-gradient(circle at 34% 28%, oklch(1 0 0 / 0.42), transparent 38%),
+      linear-gradient(145deg, oklch(1 0 0 / 0.16), oklch(0 0 0 / 0.16)),
+      var(--puck-color);
+    box-shadow:
+      inset 0.16rem 0.14rem 0.24rem oklch(1 0 0 / 0.34),
+      inset -0.18rem -0.2rem 0.28rem oklch(0 0 0 / 0.28),
+      0 0.18rem 0 oklch(0 0 0 / 0.28),
+      0 0.55rem 1rem oklch(0 0 0 / 0.5);
+    will-change: transform;
+    transition: transform 240ms cubic-bezier(0.2,0.9,0.2,1);
+    transform: translateZ(0) scale(1);
+    position: relative;
+  }
+  .player-puck-inner::after {
+    content: "";
+    position: absolute;
+    inset: 22%;
+    border-radius: 9999px;
+    border: 1px solid oklch(1 0 0 / 0.36);
+    background: oklch(1 0 0 / 0.1);
+  }
+  .player-puck-inner.moving {
+    animation: puck-arrive 900ms cubic-bezier(0.25,0.9,0.2,1);
+  }
+  .player-puck-self {
+    z-index: 25;
+  }
+  .player-puck-self .player-puck-inner {
+    animation: self-puck-pulse 1400ms ease-in-out infinite;
+  }
+  .player-puck-self .player-puck-inner.moving {
+    animation:
+      puck-arrive 900ms cubic-bezier(0.25,0.9,0.2,1),
+      self-puck-pulse 1400ms ease-in-out infinite;
+  }
+  .player-puck-self .player-puck-inner::before {
+    content: "";
+    position: absolute;
+    inset: -0.5rem;
+    border-radius: 9999px;
+    border: 2px solid currentColor;
+    opacity: 0.5;
+    animation: self-puck-ring 1400ms ease-out infinite;
+  }
+  @keyframes puck-arrive {
+    0% { transform: scale(1.18); }
+    60% { transform: scale(0.96); }
+    100% { transform: scale(1); }
+  }
+  @keyframes self-puck-pulse {
+    0%, 100% {
+      box-shadow:
+        inset 0.16rem 0.14rem 0.24rem oklch(1 0 0 / 0.34),
+        inset -0.18rem -0.2rem 0.28rem oklch(0 0 0 / 0.28),
+        0 0.18rem 0 oklch(0 0 0 / 0.28),
+        0 0.55rem 1rem oklch(0 0 0 / 0.5),
+        0 0 0 0 currentColor;
+      transform: translateZ(0) scale(1);
+    }
+    50% {
+      box-shadow:
+        inset 0.16rem 0.14rem 0.24rem oklch(1 0 0 / 0.34),
+        inset -0.18rem -0.2rem 0.28rem oklch(0 0 0 / 0.28),
+        0 0.18rem 0 oklch(0 0 0 / 0.28),
+        0 0.55rem 1rem oklch(0 0 0 / 0.5),
+        0 0 0.95rem currentColor;
+      transform: translateZ(0) scale(1.08);
+    }
+  }
+  @keyframes self-puck-ring {
+    0% {
+      opacity: 0.55;
+      transform: scale(0.75);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.45);
+    }
+  }
+
+  /* Flying arrow marker for the self player's puck */
+  .player-arrow {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 0.26rem);
+    transform: translateX(-50%);
+    width: 1.45rem;
+    height: 1.45rem;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    filter:
+      drop-shadow(0 0 0.28rem oklch(1 0 0 / 0.65))
+      drop-shadow(0 0.35rem 0.45rem oklch(0 0 0 / 0.35));
+    will-change: transform;
+    animation: arrow-float 1500ms ease-in-out infinite;
+    opacity: 1;
+  }
+
+  .player-arrow svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  @keyframes arrow-float {
+    0% {
+      transform: translateX(-50%) translateY(-0.45rem) scale(1);
+    }
+    50% {
+      transform: translateX(-50%) translateY(0.1rem) scale(1.04);
+    }
+    100% {
+      transform: translateX(-50%) translateY(-0.45rem) scale(1);
+    }
+  }
+
+  /* subtle trail behind the arrow */
+  .player-arrow::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0.12rem;
+    height: 0.95rem;
+    transform: translateX(-50%) translateY(-50%);
+    background: linear-gradient(180deg, transparent, currentColor 45%, transparent);
+    border-radius: 9999px;
+    opacity: 0.2;
+    filter: blur(4px);
+    pointer-events: none;
+  }

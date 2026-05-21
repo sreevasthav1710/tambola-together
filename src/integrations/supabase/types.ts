@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           id: string
           joined_at: string
+          game_state: Json
           marked_numbers: number[]
           name: string
           purse: number
@@ -27,6 +28,7 @@ export type Database = {
         Insert: {
           id?: string
           joined_at?: string
+          game_state?: Json
           marked_numbers?: number[]
           name: string
           purse?: number
@@ -36,6 +38,7 @@ export type Database = {
         Update: {
           id?: string
           joined_at?: string
+          game_state?: Json
           marked_numbers?: number[]
           name?: string
           purse?: number
@@ -57,6 +60,8 @@ export type Database = {
           called_numbers: number[]
           claimed: Json
           created_at: string
+          game_state: Json
+          game_type: string
           host_name: string
           host_player_id: string
           housies_allowed: number
@@ -76,6 +81,8 @@ export type Database = {
           called_numbers?: number[]
           claimed?: Json
           created_at?: string
+          game_state?: Json
+          game_type?: string
           host_name: string
           host_player_id: string
           housies_allowed?: number
@@ -95,6 +102,8 @@ export type Database = {
           called_numbers?: number[]
           claimed?: Json
           created_at?: string
+          game_state?: Json
+          game_type?: string
           host_name?: string
           host_player_id?: string
           housies_allowed?: number

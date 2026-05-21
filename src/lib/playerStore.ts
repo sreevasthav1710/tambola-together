@@ -3,7 +3,12 @@ const KEY = "tambola.players";
 const PROFILE_KEY = "tambola.profile";
 
 type Store = Record<string, { playerId: string; name: string }>; // roomId -> identity
-type Profile = { displayName: string };
+type Profile = { displayName: string; color: string };
+
+const DEFAULT_PROFILE: Profile = {
+  displayName: "",
+  color: "oklch(0.85 0.15 85)",
+};
 
 function read(): Store {
   if (typeof window === "undefined") return {};
@@ -36,11 +41,11 @@ export function clearIdentity(roomId: string) {
 }
 
 export function getProfile(): Profile {
-  if (typeof window === "undefined") return { displayName: "" };
+  if (typeof window === "undefined") return DEFAULT_PROFILE;
   try {
-    return JSON.parse(localStorage.getItem(PROFILE_KEY) || '{"displayName":""}');
+    return { ...DEFAULT_PROFILE, ...JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}") };
   } catch {
-    return { displayName: "" };
+    return DEFAULT_PROFILE;
   }
 }
 

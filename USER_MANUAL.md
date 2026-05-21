@@ -1,6 +1,6 @@
-# Tambola Live User Manual
+# GameHub User Manual
 
-Tambola Live is an online Tambola/Housie game for friends. One player creates a room, shares the room code, and acts as the host. Every player gets an individual ticket, marks called numbers, and claims prizes when their ticket matches a winning pattern.
+GameHub is an online game room app for friends. One player creates a room, shares the room code, and acts as the host. Every player gets an individual ticket for Tambola/Housie, marks called numbers, and claims prizes when their ticket matches a winning pattern.
 
 ## What You Need
 
@@ -24,7 +24,7 @@ The host calls numbers from 1 to 90. A number can only be called once.
 
 ## Creating a Room
 
-1. Open Tambola Live.
+1. Open GameHub.
 2. Select **Create Room**.
 3. Enter your display name.
 4. Set the prize amounts for:
@@ -41,7 +41,7 @@ The room creator is also a player and receives a ticket.
 
 ## Joining a Room
 
-1. Open Tambola Live.
+1. Open GameHub.
 2. Select **Join Room**.
 3. Enter the 6-character room code shared by the host.
 4. Enter your display name.

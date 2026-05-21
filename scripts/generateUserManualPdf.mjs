@@ -1,7 +1,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-const outPath = resolve("docs", "Tambola-Live-User-Manual.pdf");
+const outPath = resolve("docs", "GameHub-User-Manual.pdf");
 mkdirSync(dirname(outPath), { recursive: true });
 
 const pageWidth = 841.89;
@@ -298,7 +298,7 @@ function makePages() {
   p.rect(0, pageHeight - 66, pageWidth, 66, true);
   p.fillColor("#f59e0b");
   p.rect(0, pageHeight - 70, pageWidth, 5, true);
-  p.text("Tambola Live User Manual", margin, pageHeight - 28, 23, true, "#ffffff");
+  p.text("GameHub User Manual", margin, pageHeight - 28, 23, true, "#ffffff");
   p.text("One-page guide for rooms, tickets, numbers, claims, scoring, and game end.", margin, pageHeight - 49, 10, false, "#e5e7eb");
   // p.text("Landscape layout for easy printing and sharing", pageWidth - 262, pageHeight - 31, 9.5, false, "#fbbf24");
 

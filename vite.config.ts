@@ -7,14 +7,20 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { nitro } from "nitro/vite";
 
+// esbuild is a Go binary. On this Windows dev machine it can spawn enough
+// parallel work during Vite transforms to hit a native "Zone" OOM, even when
+// Node itself has memory available. Keep dev/build transforms less bursty.
+process.env.GOMAXPROCS ??= "2";
+
 const isVercel = process.env.VERCEL === "1";
+const isDevServer =
+  process.env.npm_lifecycle_event === "dev" ||
+  process.argv.some((arg) => arg === "dev" || arg === "serve" || arg === "--host");
 
 // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
 // @cloudflare/vite-plugin builds from this — wrangler.jsonc main alone is insufficient.
 export default defineConfig({
   cloudflare: isVercel ? false : undefined,
   plugins: isVercel ? [nitro()] : [],
-  tanstackStart: {
-    server: { entry: "server" },
-  },
+  tanstackStart: isDevServer ? undefined : { server: { entry: "server" } },
 });
