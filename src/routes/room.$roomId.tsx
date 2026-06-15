@@ -75,6 +75,10 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+  }
+
+function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
 }
 
 function asNumber(value: unknown, fallback = 0): number {
@@ -82,11 +86,8 @@ function asNumber(value: unknown, fallback = 0): number {
 }
 
 function asNumberArray(value: unknown): number[] {
-  return Array.isArray(value) ? value.filter((n): n is number => typeof n === "number") : [];
-}
-
-function asString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is number => typeof v === "number").map((n) => Number(n));
 }
 
 function normalizeRoomRow(value: unknown): RoomRow {
@@ -730,12 +731,20 @@ function SnakeLadderRoom({
           variant: "default" as const,
         }
       : isHost && room.status === "playing"
-        ? {
-            label: "Pause Game",
-            onClick: () => void handlePauseResume("stopped"),
-            disabled: busy,
-            variant: "secondary" as const,
-          }
+        ? // If host is playing and it's their turn, show Roll Dice. Otherwise show Pause.
+          canRoll
+          ? {
+              label: "Roll Dice",
+              onClick: handleRollDice,
+              disabled: !canRoll,
+              variant: "default" as const,
+            }
+          : {
+              label: "Pause Game",
+              onClick: () => void handlePauseResume("stopped"),
+              disabled: busy,
+              variant: "secondary" as const,
+            }
         : isHost && room.status === "stopped"
           ? {
               label: "Resume Game",
@@ -1618,147 +1627,108 @@ function SnakeArt({ from, to, index }: { from: number; to: number; index: number
 
 type BoardPoint = { x: number; y: number };
 
-const SNAKE_PROFILES: Record<number, { width: number; offsets: [number, number][] }> = {
-  99: {
-    width: 2.05,
-    offsets: [
-      [0, 0],
-      [2.8, 5],
-      [-0.6, 10.5],
-      [2.4, 16],
-      [0, 20],
-    ],
-  },
-  95: {
-    width: 2,
-    offsets: [
-      [0, 0],
-      [-3.8, 4],
-      [1.4, 9.5],
-      [-2.4, 15],
-      [0, 20],
-    ],
-  },
-  89: {
-    width: 1.85,
-    offsets: [
-      [0, 0],
-      [4.8, 8],
-      [-5.5, 16],
-      [3.5, 23],
-      [-10, 30],
-    ],
-  },
-  66: {
-    width: 2.25,
-    offsets: [
-      [0, 0],
-      [4.2, 2.4],
-      [0.5, 6.8],
-      [-5.6, 8.5],
-      [0, 10],
-    ],
-  },
-  59: {
-    width: 1.75,
-    offsets: [
-      [0, 0],
-      [5, 5.5],
-      [-3, 13],
-      [7, 22],
-      [10, 30],
-    ],
-  },
-  43: {
-    width: 1.85,
-    offsets: [
-      [0, 0],
-      [8, 1],
-      [13, 7],
-      [9, 11],
-      [10, 10],
-    ],
-  },
-  40: {
-    width: 1.68,
-    offsets: [
-      [0, 0],
-      [-3.4, 4.8],
-      [2.6, 10.6],
-      [-1.5, 16.2],
-      [0, 20],
-    ],
-  },
-  27: {
-    width: 1.95,
-    offsets: [
-      [0, 0],
-      [-5, 4],
-      [-11, 2],
-      [-12, 8],
-      [-10, 10],
-    ],
-  },
-  19: {
-    width: 1.8,
-    offsets: [
-      [0, 0],
-      [4, 7],
-      [-2, 13],
-      [1, 19],
-      [0, 20],
-    ],
-  },
-  6: {
-    width: 1.75,
-    offsets: [
-      [0, 0],
-      [-2, -4],
-      [-7, -3],
-      [-8, 0],
-      [-10, 0],
-    ],
-  },
-};
+// Keep profiles empty to use a simple, predictable snake routing.
+const SNAKE_PROFILES: Record<number, { width: number; offsets: [number, number][] }> = {};
 
 function snakeProfile(from: number, to: number) {
   const start = cellCenter(from);
   const end = cellCenter(to);
-  const fallback = {
-    width: [2.05, 1.85, 2.3, 1.75][from % 4],
-    offsets: [
-      [0, 0],
-      [(end.x - start.x) * 0.35 + 8, (end.y - start.y) * 0.28],
-      [(end.x - start.x) * 0.66 - 8, (end.y - start.y) * 0.68],
-      [end.x - start.x, end.y - start.y],
-    ],
-  };
-  const profile = SNAKE_PROFILES[from] ?? fallback;
-  return {
-    width: profile.width,
-    points: profile.offsets.map(([x, y]) => ({ x: start.x + x, y: start.y + y })),
-  };
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const dist = Math.hypot(dx, dy) || 1;
+
+  // Sample density balanced for smoothness vs performance
+  const segments = Math.max(10, Math.min(48, Math.round(dist / 3)));
+
+  // Perpendicular (unit) vector for waving offset
+  const nx = -dy / dist;
+  const ny = dx / dist;
+
+  // Deterministic per-snake phase so snakes vary but are stable
+  const phase = Math.abs(Math.sin(from * 12.9898 + to * 78.233)) * Math.PI * 2;
+
+  const waves = Math.max(1, Math.round(dist / 26));
+  // Base amplitude scales with distance but large snakes get reduced amplitude
+  let maxAmp = Math.min(34, dist * 0.16);
+  if (dist > 60) maxAmp *= 0.55; // reduce amplitude for long snakes to avoid overlaps
+  if (from === 99) maxAmp *= 0.6; // special-case head 99 to keep it compact
+
+  const raw: BoardPoint[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const baseX = start.x + dx * t;
+    const baseY = start.y + dy * t;
+
+    // Envelope emphasizes mid-body but keeps ends gentle
+    const envelope = Math.sin(Math.PI * t) ** 0.9;
+
+    // Single harmonic for smooth wiggle
+    const harmonic = Math.sin(t * Math.PI * waves + phase);
+
+    // Gentle global bend to avoid perfectly straight snakes
+    const bend = Math.sin((t - 0.5) * Math.PI) * dist * 0.02 * (dist > 60 ? 0.6 : 1);
+
+    const wave = (harmonic * maxAmp + bend) * envelope;
+
+    raw.push({ x: baseX + nx * wave, y: baseY + ny * wave });
+  }
+
+  // Chaikin subdivision (corner-cutting) to smooth polyline without overshoot.
+  function chaikin(points: BoardPoint[]) {
+    if (points.length < 2) return points.slice();
+    const out: BoardPoint[] = [];
+    out.push(points[0]);
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i];
+      const p1 = points[i + 1];
+      out.push({ x: p0.x * 0.75 + p1.x * 0.25, y: p0.y * 0.75 + p1.y * 0.25 });
+      out.push({ x: p0.x * 0.25 + p1.x * 0.75, y: p0.y * 0.25 + p1.y * 0.75 });
+    }
+    out.push(points[points.length - 1]);
+    return out;
+  }
+
+  let points = raw;
+  // Apply two Chaikin passes for smooth, broad curves (three made very elongated shapes)
+  points = chaikin(points);
+  points = chaikin(points);
+
+  const width = 1.5 + Math.min(1.8, dist / 120);
+  return { width, points };
 }
 
 function smoothPath(points: BoardPoint[]) {
+  // Use Catmull-Rom to Cubic Bezier conversion for smoother, more natural curves.
   if (points.length < 2) return "";
-  const commands = [`M ${points[0].x} ${points[0].y}`];
-  for (let index = 0; index < points.length - 1; index++) {
-    const current = points[index];
-    const next = points[index + 1];
-    const previous = points[index - 1] ?? current;
-    const afterNext = points[index + 2] ?? next;
-    const cp1 = {
-      x: current.x + (next.x - previous.x) / 6,
-      y: current.y + (next.y - previous.y) / 6,
-    };
-    const cp2 = {
-      x: next.x - (afterNext.x - current.x) / 6,
-      y: next.y - (afterNext.y - current.y) / 6,
-    };
-    commands.push(`C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${next.x} ${next.y}`);
+  const tension = 0.5; // lower -> looser, smoother curves
+  const cmds: string[] = [];
+  cmds.push(`M ${points[0].x} ${points[0].y}`);
+
+  if (points.length === 2) {
+    const p0 = points[0];
+    const p1 = points[1];
+    const cp1x = p0.x + (p1.x - p0.x) / 3;
+    const cp1y = p0.y + (p1.y - p0.y) / 3;
+    const cp2x = p0.x + (2 * (p1.x - p0.x)) / 3;
+    const cp2y = p0.y + (2 * (p1.y - p0.y)) / 3;
+    cmds.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p1.x} ${p1.y}`);
+    return cmds.join(" ");
   }
-  return commands.join(" ");
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i - 1] ?? points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] ?? p2;
+
+    const cp1x = p1.x + (p2.x - p0.x) / 6 * tension;
+    const cp1y = p1.y + (p2.y - p0.y) / 6 * tension;
+    const cp2x = p2.x - (p3.x - p1.x) / 6 * tension;
+    const cp2y = p2.y - (p3.y - p1.y) / 6 * tension;
+
+    cmds.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`);
+  }
+  return cmds.join(" ");
 }
 
 function snakeSpots(points: BoardPoint[], strokeWidth: number, index: number) {

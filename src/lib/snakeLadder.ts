@@ -6,12 +6,11 @@ export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 6;
 
 export const SNAKES: Record<number, number> = {
-  99: 78,
+  99: 24,
   95: 75,
   89: 53,
   66: 56,
   59: 23,
-  43: 34,
   40: 20,
   19: 2,
   27: 15,
@@ -19,8 +18,8 @@ export const SNAKES: Record<number, number> = {
 };
 
 export const LADDERS: Record<number, number> = {
-  4: 25,
-  8: 57,
+  4: 74,
+  8: 35,
   13: 46,
   33: 49,
   51: 67,

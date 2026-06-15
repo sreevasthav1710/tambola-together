@@ -306,8 +306,32 @@ function CreateRoomDialog({
       });
       if (pErr) throw pErr;
 
+      // Verify the room is readable before navigating to avoid a transient
+      // race where the new row isn't immediately visible to subsequent selects.
+      const maxAttempts = 6;
+      let found = false;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const { data: verify, error: verifyErr } = await supabase
+          .from("rooms")
+          .select("id")
+          .eq("id", roomId)
+          .maybeSingle();
+        if (verifyErr) {
+          // keep retrying on transient errors
+        } else if (verify) {
+          found = true;
+          break;
+        }
+        // small backoff
+        await new Promise((res) => setTimeout(res, 200 * (attempt + 1)));
+      }
+
       setIdentity(roomId, playerId, hostName);
       toast.success(`${cleanRoomName} created`);
+      if (!found) {
+        // Still navigate — the room should appear shortly. This avoids blocking the UX.
+        console.warn(`Room ${roomId} not immediately visible after creation`);
+      }
       navigate({ to: "/room/$roomId", params: { roomId } });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to create room";
