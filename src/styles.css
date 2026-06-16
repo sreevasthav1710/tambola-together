@@ -416,27 +416,90 @@
   }
 
   .chess-stage {
-    width: min(100%, 43rem);
-    perspective: 1100px;
-    padding: clamp(0.45rem, 2vw, 1rem);
+    width: min(100%, 42rem);
+    padding: clamp(0.25rem, 1.4vw, 0.8rem);
+  }
+
+  .chess-frame {
+    position: relative;
+    display: grid;
+    grid-template-columns: clamp(1rem, 3.2vw, 1.55rem) minmax(0, 1fr) clamp(1rem, 3.2vw, 1.55rem);
+    grid-template-rows: clamp(1rem, 3.2vw, 1.55rem) minmax(0, 1fr) clamp(1rem, 3.2vw, 1.55rem);
+    aspect-ratio: 1;
+    width: 100%;
+    border: clamp(0.22rem, 0.9vw, 0.45rem) solid oklch(0.36 0.1 55);
+    border-radius: 0.35rem;
+    background:
+      linear-gradient(90deg, oklch(0.42 0.11 55 / 0.38), transparent 16% 84%, oklch(0.15 0.05 45 / 0.22)),
+      repeating-linear-gradient(90deg, oklch(0.57 0.12 62), oklch(0.63 0.13 68) 0.55rem, oklch(0.5 0.12 55) 1.1rem);
+    box-shadow:
+      0 1rem 2.2rem oklch(0 0 0 / 0.42),
+      0 0.22rem 0 oklch(0.21 0.07 45),
+      inset 0 0 0 1px oklch(1 0 0 / 0.2),
+      inset 0 0 1.4rem oklch(0.2 0.07 45 / 0.36);
+  }
+
+  .chess-label-row,
+  .chess-label-col {
+    display: grid;
+    color: oklch(0.17 0.05 45);
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(0.62rem, 1.9vw, 0.95rem);
+    font-weight: 800;
+    line-height: 1;
+    text-transform: lowercase;
+    text-shadow: 0 1px 0 oklch(0.85 0.1 75 / 0.52);
+    user-select: none;
+  }
+
+  .chess-label-row {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    align-items: center;
+    justify-items: center;
+  }
+
+  .chess-label-row-top {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .chess-label-row-bottom {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .chess-label-col {
+    grid-template-rows: repeat(8, minmax(0, 1fr));
+    align-items: center;
+    justify-items: center;
+  }
+
+  .chess-label-col-left {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .chess-label-col-right {
+    grid-column: 3;
+    grid-row: 2;
   }
 
   .chess-board {
     position: relative;
+    grid-column: 2;
+    grid-row: 2;
     display: grid;
-    grid-template-columns: repeat(8, 1fr);
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    grid-template-rows: repeat(8, minmax(0, 1fr));
     aspect-ratio: 1;
     width: 100%;
+    height: 100%;
     overflow: hidden;
-    border: 0.7rem solid oklch(0.28 0.05 45);
-    border-radius: 0.55rem;
-    background: oklch(0.24 0.04 55);
+    border: 1px solid oklch(0.18 0.05 45 / 0.75);
+    background: oklch(0.45 0.1 55);
     box-shadow:
-      0 1.35rem 2.4rem oklch(0 0 0 / 0.48),
-      0 0.28rem 0 oklch(0.13 0.03 45),
-      inset 0 0 0 1px oklch(1 0 0 / 0.18);
-    transform: rotateX(9deg) rotateZ(-0.5deg);
-    transform-origin: center;
+      inset 0 0 0 1px oklch(1 0 0 / 0.18),
+      inset 0 0 1.3rem oklch(0 0 0 / 0.18);
   }
 
   .chess-square {
@@ -447,7 +510,11 @@
     padding: 0;
     min-width: 0;
     min-height: 0;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 1;
     isolation: isolate;
+    box-sizing: border-box;
     transition:
       filter 180ms ease,
       box-shadow 180ms ease,
@@ -456,12 +523,14 @@
 
   .chess-square-light {
     background:
-      linear-gradient(135deg, oklch(0.87 0.05 88), oklch(0.75 0.06 82));
+      linear-gradient(135deg, oklch(0.89 0.06 85), oklch(0.77 0.07 78)),
+      repeating-linear-gradient(90deg, transparent, oklch(0.55 0.08 62 / 0.12) 0.28rem, transparent 0.55rem);
   }
 
   .chess-square-dark {
     background:
-      linear-gradient(135deg, oklch(0.44 0.08 42), oklch(0.31 0.07 42));
+      linear-gradient(135deg, oklch(0.57 0.11 55), oklch(0.39 0.1 48)),
+      repeating-linear-gradient(90deg, transparent, oklch(0.16 0.06 45 / 0.18) 0.32rem, transparent 0.64rem);
   }
 
   .chess-square:hover {
@@ -517,54 +586,41 @@
     z-index: 2;
     display: grid;
     place-items: center;
-    width: 76%;
-    height: 76%;
-    border-radius: 9999px;
+    width: 100%;
+    height: 100%;
     font-family: Georgia, "Times New Roman", serif;
-    font-size: clamp(1.7rem, 6.4vw, 4.15rem);
+    font-size: clamp(1.35rem, 5.7vw, 3.75rem);
     font-weight: 700;
     line-height: 1;
-    transform: translateY(-7%) translateZ(0);
+    transform: translateZ(0);
     user-select: none;
     transition:
-      transform 260ms cubic-bezier(0.16, 0.9, 0.2, 1),
+      transform 360ms cubic-bezier(0.16, 0.95, 0.18, 1),
       filter 260ms ease;
     will-change: transform;
   }
 
   .chess-square:hover .chess-piece {
-    transform: translateY(-12%) scale(1.04) translateZ(0);
+    transform: scale(1.04) translateZ(0);
     filter: brightness(1.08);
   }
 
   .chess-piece-w {
     color: oklch(0.97 0.02 92);
     text-shadow:
+      0 0.02rem 0 oklch(1 0 0),
       0 0.06rem 0 oklch(0.58 0.04 92),
-      0 0.24rem 0.28rem oklch(0 0 0 / 0.34);
-    background:
-      radial-gradient(circle at 32% 24%, oklch(1 0 0), transparent 21%),
-      radial-gradient(circle at 42% 28%, oklch(0.98 0.02 92), oklch(0.78 0.04 88) 70%);
-    box-shadow:
-      inset 0.18rem 0.18rem 0.34rem oklch(1 0 0 / 0.7),
-      inset -0.28rem -0.3rem 0.45rem oklch(0.45 0.04 80 / 0.38),
-      0 0.35rem 0 oklch(0.52 0.04 82),
-      0 0.82rem 1rem oklch(0 0 0 / 0.42);
+      0 0.18rem 0.16rem oklch(0 0 0 / 0.48),
+      0 0.5rem 0.7rem oklch(0 0 0 / 0.38);
   }
 
   .chess-piece-b {
     color: oklch(0.1 0.02 60);
     text-shadow:
       0 0.04rem 0 oklch(1 0 0 / 0.22),
-      0 0.2rem 0.28rem oklch(0 0 0 / 0.56);
-    background:
-      radial-gradient(circle at 33% 24%, oklch(0.56 0.03 70), transparent 20%),
-      radial-gradient(circle at 44% 32%, oklch(0.26 0.03 70), oklch(0.08 0.02 60) 72%);
-    box-shadow:
-      inset 0.18rem 0.18rem 0.32rem oklch(1 0 0 / 0.18),
-      inset -0.28rem -0.32rem 0.45rem oklch(0 0 0 / 0.52),
-      0 0.35rem 0 oklch(0.04 0.01 60),
-      0 0.82rem 1rem oklch(0 0 0 / 0.52);
+      0 0.16rem 0.12rem oklch(1 0 0 / 0.12),
+      0 0.3rem 0.38rem oklch(0 0 0 / 0.66),
+      0 0.65rem 0.85rem oklch(0 0 0 / 0.44);
   }
 
   .chess-moving-piece {
@@ -577,18 +633,59 @@
     display: grid;
     place-items: center;
     pointer-events: none;
-    animation: chess-piece-glide 520ms cubic-bezier(0.16, 0.95, 0.22, 1) both;
+    animation: chess-piece-glide 760ms cubic-bezier(0.12, 0.92, 0.16, 1) both;
+  }
+
+  .chess-alert {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 12;
+    width: min(82%, 22rem);
+    transform: translate(-50%, -50%);
+    border: 1px solid oklch(1 0 0 / 0.22);
+    border-radius: 0.5rem;
+    background: oklch(0.08 0.02 55 / 0.62);
+    color: oklch(0.98 0.03 85);
+    padding: clamp(0.85rem, 2.6vw, 1.2rem);
+    text-align: center;
+    box-shadow:
+      0 1.1rem 2rem oklch(0 0 0 / 0.38),
+      inset 0 0 0 1px oklch(1 0 0 / 0.08);
+    backdrop-filter: blur(8px);
+    animation: chess-alert-in 260ms ease-out both;
+    pointer-events: none;
+  }
+
+  .chess-alert-title {
+    font-size: clamp(1.15rem, 4vw, 1.8rem);
+    font-weight: 900;
+    color: oklch(0.88 0.15 80);
+  }
+
+  .chess-alert-detail {
+    margin-top: 0.25rem;
+    font-size: clamp(0.78rem, 2.2vw, 0.96rem);
+    color: oklch(0.95 0.03 85 / 0.86);
+  }
+
+  @keyframes chess-alert-in {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, -48%) scale(0.96);
+    }
+    100% {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
   }
 
   @keyframes chess-piece-glide {
     0% {
       transform: translate(var(--from-x), var(--from-y)) scale(1.02);
     }
-    48% {
-      transform: translate(
-        calc((var(--from-x) + var(--to-x)) / 2),
-        calc((var(--from-y) + var(--to-y)) / 2 - 1.4%)
-      ) scale(1.08);
+    70% {
+      transform: translate(var(--to-x), var(--to-y)) scale(1.045);
     }
     100% {
       transform: translate(var(--to-x), var(--to-y)) scale(1);

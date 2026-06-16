@@ -159,6 +159,26 @@ export function isGameOver(fen: string): boolean {
   return createEngine(fen).isGameOver();
 }
 
+export function gameStatus(fen: string): {
+  kind: "playing" | "check" | "checkmate" | "stalemate" | "draw";
+  sideToMove: ChessSide;
+  winningSide: ChessSide | null;
+} {
+  const engine = createEngine(fen);
+  const sideToMove = engine.turn() === "w" ? "white" : "black";
+  if (engine.isCheckmate()) {
+    return {
+      kind: "checkmate",
+      sideToMove,
+      winningSide: sideToMove === "white" ? "black" : "white",
+    };
+  }
+  if (engine.isStalemate()) return { kind: "stalemate", sideToMove, winningSide: null };
+  if (engine.isDraw()) return { kind: "draw", sideToMove, winningSide: null };
+  if (engine.isCheck()) return { kind: "check", sideToMove, winningSide: null };
+  return { kind: "playing", sideToMove, winningSide: null };
+}
+
 export function appendEvent(
   state: ChessRoomState,
   type: ChessEvent,

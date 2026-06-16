@@ -1989,11 +1989,28 @@ function ChessRoom({
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const roomState = Chess.normalizeRoomState(room.game_state);
   const activeSide = Chess.turnSide(roomState.fen);
+  const gameStatus = Chess.gameStatus(roomState.fen);
   const playerStates = players.map((player, index) =>
     Chess.normalizePlayerState(player.game_state, player.id, player.name, index),
   );
   const myChessState = playerStates.find((player) => player.id === me.id);
   const activePlayer = playerStates.find((player) => player.side === activeSide);
+  const winner = gameStatus.winningSide
+    ? playerStates.find((player) => player.side === gameStatus.winningSide)
+    : null;
+  const isMyTurn = room.status === "playing" && myChessState?.side === activeSide;
+  const turnText =
+    room.status === "waiting"
+      ? "Waiting for both players"
+      : gameStatus.kind === "checkmate"
+        ? winner?.id === me.id
+          ? "You won"
+          : "Opponent won"
+        : gameStatus.kind === "draw" || gameStatus.kind === "stalemate"
+          ? "Game drawn"
+          : isMyTurn
+            ? "Your turn"
+            : "Opponent's turn";
   const canStart = isHost && room.status === "waiting" && players.length >= Chess.MIN_PLAYERS;
   const legalMoves = useMemo(
     () => (selectedSquare ? Chess.legalMovesFor(roomState.fen, selectedSquare) : []),
@@ -2093,16 +2110,19 @@ function ChessRoom({
     const movedState = Chess.makeMove(roomState, selectedSquare, square);
     if (!movedState?.lastMove) return toast.error("Illegal move");
 
-    const nextWinnerId = movedState.winnerId
-      ? playerStates.find((player) => player.side === movedState.winnerId)?.id ?? null
+    const movedStatus = Chess.gameStatus(movedState.fen);
+    const nextWinnerId = movedStatus.winningSide
+      ? playerStates.find((player) => player.side === movedStatus.winningSide)?.id ?? null
       : null;
     const nextRoomState = Chess.appendEvent(
       { ...movedState, winnerId: nextWinnerId },
-      Chess.isGameOver(movedState.fen) ? "checkmate" : "move",
-      `${myChessState.name}: ${movedState.lastMove.san}`,
+      movedStatus.kind === "checkmate" ? "checkmate" : "move",
+      movedStatus.kind === "checkmate"
+        ? `${myChessState.name}: ${movedState.lastMove.san} checkmate`
+        : `${myChessState.name}: ${movedState.lastMove.san}`,
       me.id,
     );
-    const nextStatus = Chess.isGameOver(nextRoomState.fen) ? "ended" : "playing";
+    const nextStatus = movedStatus.kind === "checkmate" ? "ended" : "playing";
 
     setBusy(true);
     setSelectedSquare(null);
@@ -2162,7 +2182,22 @@ function ChessRoom({
             legalTargets={legalMoves.map((move) => move.to)}
             lastMove={roomState.lastMove}
             orientation={myChessState?.side === "black" ? "black" : "white"}
-            canMove={room.status === "playing" && myChessState?.side === activeSide}
+            canMove={isMyTurn}
+            alert={
+              gameStatus.kind === "check"
+                ? {
+                    title: isMyTurn ? "Your king is in check" : "Opponent is in check",
+                    detail: "The king must be protected on this move.",
+                  }
+                : gameStatus.kind === "checkmate"
+                  ? {
+                      title: winner?.id === me.id ? "Checkmate. You won" : "Checkmate",
+                      detail: winner
+                        ? `${winner.name} wins the game.`
+                        : "The game has ended.",
+                    }
+                  : null
+            }
             onSquareClick={handleSquareClick}
           />
           <div className="mt-4">
@@ -2182,14 +2217,14 @@ function ChessRoom({
         <aside className="space-y-4">
           <Card className="p-4">
             <div className="mb-4 rounded-md border border-border bg-muted/40 p-3">
-              <div className="text-xs uppercase text-muted-foreground">Position</div>
-              <div className="mt-1 text-lg font-bold text-primary">{Chess.statusText(roomState)}</div>
+              <div className="text-xs uppercase text-muted-foreground">Chance</div>
+              <div className="mt-1 text-lg font-bold text-primary">{turnText}</div>
               <div className="text-xs text-muted-foreground">
                 {room.status === "waiting"
                   ? "Waiting for both players"
                   : activePlayer
-                    ? `${activePlayer.name} plays ${activeSide}`
-                    : `${activeSide} to move`}
+                    ? `${activePlayer.name} is thinking`
+                    : "Waiting for move"}
               </div>
             </div>
             <div className="text-sm font-semibold mb-3">Players</div>
@@ -2252,6 +2287,7 @@ function ChessBoard({
   lastMove,
   orientation,
   canMove,
+  alert,
   onSquareClick,
 }: {
   fen: string;
@@ -2260,6 +2296,7 @@ function ChessBoard({
   lastMove: { from: Square; to: Square; san: string } | null;
   orientation: "white" | "black";
   canMove: boolean;
+  alert: { title: string; detail: string } | null;
   onSquareClick: (square: Square) => void;
 }) {
   const [animatingMove, setAnimatingMove] = useState(lastMove);
@@ -2277,40 +2314,68 @@ function ChessBoard({
 
   return (
     <div className="chess-stage">
-      <div className="chess-board" style={{ cursor: canMove ? "pointer" : "default" }}>
-        {ranks.map((rank, row) =>
-          files.map((file, col) => {
-            const square = `${file}${rank}` as Square;
-            const piece = engine.get(square);
-            const isLight = (row + col) % 2 === 0;
-            const isSelected = selectedSquare === square;
-            const isLegal = legalSet.has(square);
-            const isLastMove = lastMove?.from === square || lastMove?.to === square;
-            const hideStaticPiece = animatingMove?.to === square;
-            return (
-              <button
-                key={square}
-                type="button"
-                className={`chess-square ${isLight ? "chess-square-light" : "chess-square-dark"} ${
-                  isSelected ? "chess-square-selected" : ""
-                } ${isLegal ? "chess-square-legal" : ""} ${isLastMove ? "chess-square-last" : ""}`}
-                onClick={() => onSquareClick(square)}
-                aria-label={piece ? `${piece.color === "w" ? "White" : "Black"} ${piece.type} on ${square}` : square}
-              >
-                {isLegal && <span className={piece ? "chess-capture-ring" : "chess-move-dot"} />}
-                {piece && !hideStaticPiece && <ChessPiece piece={piece} />}
-              </button>
-            );
-          }),
-        )}
-        {animatingMove ? (
-          <MovingChessPiece
-            move={animatingMove}
-            engine={engine}
-            files={files}
-            ranks={ranks}
-          />
-        ) : null}
+      <div className="chess-frame">
+        <div className="chess-label-row chess-label-row-top">
+          {files.map((file) => (
+            <span key={`top-${file}`}>{file}</span>
+          ))}
+        </div>
+        <div className="chess-label-row chess-label-row-bottom">
+          {files.map((file) => (
+            <span key={`bottom-${file}`}>{file}</span>
+          ))}
+        </div>
+        <div className="chess-label-col chess-label-col-left">
+          {ranks.map((rank) => (
+            <span key={`left-${rank}`}>{rank}</span>
+          ))}
+        </div>
+        <div className="chess-label-col chess-label-col-right">
+          {ranks.map((rank) => (
+            <span key={`right-${rank}`}>{rank}</span>
+          ))}
+        </div>
+        <div className="chess-board" style={{ cursor: canMove ? "pointer" : "default" }}>
+          {ranks.map((rank, row) =>
+            files.map((file, col) => {
+              const square = `${file}${rank}` as Square;
+              const piece = engine.get(square);
+              const isLight = (row + col) % 2 === 0;
+              const isSelected = selectedSquare === square;
+              const isLegal = legalSet.has(square);
+              const isLastMove = lastMove?.from === square || lastMove?.to === square;
+              const hideStaticPiece = animatingMove?.to === square;
+              return (
+                <button
+                  key={square}
+                  type="button"
+                  className={`chess-square ${isLight ? "chess-square-light" : "chess-square-dark"} ${
+                    isSelected ? "chess-square-selected" : ""
+                  } ${isLegal ? "chess-square-legal" : ""} ${isLastMove ? "chess-square-last" : ""}`}
+                  onClick={() => onSquareClick(square)}
+                  aria-label={piece ? `${piece.color === "w" ? "White" : "Black"} ${piece.type} on ${square}` : square}
+                >
+                  {isLegal && <span className={piece ? "chess-capture-ring" : "chess-move-dot"} />}
+                  {piece && !hideStaticPiece && <ChessPiece piece={piece} />}
+                </button>
+              );
+            }),
+          )}
+          {animatingMove ? (
+            <MovingChessPiece
+              move={animatingMove}
+              engine={engine}
+              files={files}
+              ranks={ranks}
+            />
+          ) : null}
+          {alert ? (
+            <div className="chess-alert" role="status" aria-live="polite">
+              <div className="chess-alert-title">{alert.title}</div>
+              <div className="chess-alert-detail">{alert.detail}</div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );
