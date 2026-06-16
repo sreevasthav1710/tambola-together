@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from "react";
+import type { Square } from "chess.js";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getIdentity, clearIdentity } from "@/lib/playerStore";
@@ -37,6 +38,7 @@ import {
   type SnakeLadderPlayerState,
   type SnakeLadderRoomState,
 } from "@/lib/snakeLadder";
+import * as Chess from "@/lib/chess";
 
 const CLAIM_TYPES: ClaimType[] = ["ff", "line1", "line2", "line3", "housie"];
 
@@ -57,7 +59,7 @@ interface RoomRow {
   housies_won: number;
   claimed: Record<string, string | string[]>;
   game_type: string;
-  game_state: SnakeLadderRoomState | Record<string, never>;
+  game_state: SnakeLadderRoomState | Chess.ChessRoomState | Record<string, never>;
   status: string;
 }
 
@@ -66,7 +68,7 @@ interface PlayerRow {
   room_id: string;
   name: string;
   ticket: Ticket;
-  game_state: SnakeLadderPlayerState | Record<string, never>;
+  game_state: SnakeLadderPlayerState | Chess.ChessPlayerState | Record<string, never>;
   marked_numbers: number[];
   purse: number;
 }
@@ -468,6 +470,10 @@ function RoomPage() {
         <Button onClick={() => navigate({ to: "/" })}>Go home</Button>
       </div>
     );
+  }
+
+  if (room.game_type === "chess") {
+    return <ChessRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />;
   }
 
   if (room.game_type === "snake-ladder") {
@@ -1964,4 +1970,400 @@ function Leaderboard({ room, players }: { room: RoomRow; players: PlayerRow[] })
       </ul>
     </Card>
   );
+}
+
+function ChessRoom({
+  room,
+  players,
+  me,
+  isHost,
+  onExit,
+}: {
+  room: RoomRow;
+  players: PlayerRow[];
+  me: PlayerRow;
+  isHost: boolean;
+  onExit: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const roomState = Chess.normalizeRoomState(room.game_state);
+  const activeSide = Chess.turnSide(roomState.fen);
+  const playerStates = players.map((player, index) =>
+    Chess.normalizePlayerState(player.game_state, player.id, player.name, index),
+  );
+  const myChessState = playerStates.find((player) => player.id === me.id);
+  const activePlayer = playerStates.find((player) => player.side === activeSide);
+  const canStart = isHost && room.status === "waiting" && players.length >= Chess.MIN_PLAYERS;
+  const legalMoves = useMemo(
+    () => (selectedSquare ? Chess.legalMovesFor(roomState.fen, selectedSquare) : []),
+    [roomState.fen, selectedSquare],
+  );
+
+  useEffect(() => {
+    setSelectedSquare(null);
+  }, [roomState.fen]);
+
+  async function startGame() {
+    if (!isHost) return;
+    if (players.length < Chess.MIN_PLAYERS) return toast.error("Need at least 2 players");
+    if (players.length > Chess.MAX_PLAYERS) return toast.error("Room is full");
+
+    setBusy(true);
+    try {
+      const nextRoomState = Chess.appendEvent(Chess.createInitialRoomState(), "start-game", "Game started");
+      const results = await Promise.all([
+        supabase
+          .from("rooms")
+          .update({ status: "playing", game_state: nextRoomState as never })
+          .eq("id", room.id),
+        ...players.map((player, index) =>
+          supabase
+            .from("players")
+            .update({ game_state: Chess.createPlayerState(player.id, player.name, index) as never })
+            .eq("id", player.id),
+        ),
+      ]);
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+      toast.success("Chess started");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to start game");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRestart() {
+    if (!isHost) return;
+    setBusy(true);
+    try {
+      const nextRoomState = Chess.appendEvent(Chess.createInitialRoomState(), "restart-game", "Game restarted");
+      const results = await Promise.all([
+        supabase
+          .from("rooms")
+          .update({ status: "waiting", game_state: nextRoomState as never })
+          .eq("id", room.id),
+        ...players.map((player, index) =>
+          supabase
+            .from("players")
+            .update({ game_state: Chess.createPlayerState(player.id, player.name, index) as never })
+            .eq("id", player.id),
+        ),
+      ]);
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+      toast.success("Game reset");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to restart game");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSquareClick(square: Square) {
+    if (busy || room.status !== "playing") return;
+    if (!myChessState || myChessState.side !== activeSide) {
+      return toast.error("Wait for your turn");
+    }
+
+    const piece = Chess.pieceAt(roomState.fen, square);
+    const clickedOwnPiece =
+      piece?.color === (myChessState.side === "white" ? "w" : "b");
+
+    if (!selectedSquare) {
+      if (!clickedOwnPiece) return;
+      setSelectedSquare(square);
+      return;
+    }
+
+    if (selectedSquare === square) {
+      setSelectedSquare(null);
+      return;
+    }
+
+    if (clickedOwnPiece) {
+      setSelectedSquare(square);
+      return;
+    }
+
+    const legalMove = legalMoves.find((move) => move.to === square);
+    if (!legalMove) return toast.error("That piece cannot move there");
+
+    const movedState = Chess.makeMove(roomState, selectedSquare, square);
+    if (!movedState?.lastMove) return toast.error("Illegal move");
+
+    const nextWinnerId = movedState.winnerId
+      ? playerStates.find((player) => player.side === movedState.winnerId)?.id ?? null
+      : null;
+    const nextRoomState = Chess.appendEvent(
+      { ...movedState, winnerId: nextWinnerId },
+      Chess.isGameOver(movedState.fen) ? "checkmate" : "move",
+      `${myChessState.name}: ${movedState.lastMove.san}`,
+      me.id,
+    );
+    const nextStatus = Chess.isGameOver(nextRoomState.fen) ? "ended" : "playing";
+
+    setBusy(true);
+    setSelectedSquare(null);
+    try {
+      const { error } = await supabase
+        .from("rooms")
+        .update({ game_state: nextRoomState as never, status: nextStatus })
+        .eq("id", room.id);
+      if (error) throw error;
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to move piece");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-28 lg:pb-6">
+      <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">
+            {room.room_name || `Room ${room.id}`}
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Chess - Code {room.id} - Host: {room.host_name}
+            {isHost && " (you)"} - {players.length}/{Chess.MAX_PLAYERS}P
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              navigator.clipboard.writeText(room.id);
+              toast.success("Room code copied");
+            }}
+          >
+            Copy
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => {
+              if (confirm("Exit this room?")) onExit();
+            }}
+          >
+            Exit
+          </Button>
+        </div>
+      </header>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+        <Card className="p-3 sm:p-5 flex flex-col items-center justify-center overflow-hidden">
+          <ChessBoard
+            fen={roomState.fen}
+            selectedSquare={selectedSquare}
+            legalTargets={legalMoves.map((move) => move.to)}
+            lastMove={roomState.lastMove}
+            orientation={myChessState?.side === "black" ? "black" : "white"}
+            canMove={room.status === "playing" && myChessState?.side === activeSide}
+            onSquareClick={handleSquareClick}
+          />
+          <div className="mt-4">
+            {isHost && room.status === "waiting" && (
+              <Button onClick={startGame} disabled={!canStart || busy} className="h-12">
+                Start Game
+              </Button>
+            )}
+            {isHost && room.status === "playing" && (
+              <Button onClick={handleRestart} disabled={busy} variant="secondary" className="h-12 mt-2">
+                Restart Game
+              </Button>
+            )}
+          </div>
+        </Card>
+
+        <aside className="space-y-4">
+          <Card className="p-4">
+            <div className="mb-4 rounded-md border border-border bg-muted/40 p-3">
+              <div className="text-xs uppercase text-muted-foreground">Position</div>
+              <div className="mt-1 text-lg font-bold text-primary">{Chess.statusText(roomState)}</div>
+              <div className="text-xs text-muted-foreground">
+                {room.status === "waiting"
+                  ? "Waiting for both players"
+                  : activePlayer
+                    ? `${activePlayer.name} plays ${activeSide}`
+                    : `${activeSide} to move`}
+              </div>
+            </div>
+            <div className="text-sm font-semibold mb-3">Players</div>
+            <ul className="space-y-2">
+              {playerStates.map((player) => (
+                <li key={player.id} className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2 text-sm">
+                  <span className={player.id === me.id ? "text-primary font-semibold" : ""}>
+                    {player.name} {player.id === room.host_player_id ? " 👑" : ""}
+                  </span>
+                  <span className="text-sm text-muted-foreground">{player.side}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+
+          <Card className="p-4">
+            <div className="text-sm font-semibold mb-3">Move History</div>
+            <ul className="space-y-2 text-sm">
+              {roomState.moveHistory.length === 0 ? (
+                <li className="text-muted-foreground">No moves yet.</li>
+              ) : (
+                roomState.moveHistory
+                  .slice()
+                  .reverse()
+                  .map((move, index) => (
+                    <li key={`${move}-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-muted-foreground">
+                      {roomState.moveHistory.length - index}. {move}
+                    </li>
+                  ))
+              )}
+            </ul>
+          </Card>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+const CHESS_FILES = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
+const CHESS_RANKS = [8, 7, 6, 5, 4, 3, 2, 1] as const;
+const PIECE_GLYPHS: Record<string, string> = {
+  wk: "♔",
+  wq: "♕",
+  wr: "♖",
+  wb: "♗",
+  wn: "♘",
+  wp: "♙",
+  bk: "♚",
+  bq: "♛",
+  br: "♜",
+  bb: "♝",
+  bn: "♞",
+  bp: "♟",
+};
+
+function ChessBoard({
+  fen,
+  selectedSquare,
+  legalTargets,
+  lastMove,
+  orientation,
+  canMove,
+  onSquareClick,
+}: {
+  fen: string;
+  selectedSquare: Square | null;
+  legalTargets: Square[];
+  lastMove: { from: Square; to: Square; san: string } | null;
+  orientation: "white" | "black";
+  canMove: boolean;
+  onSquareClick: (square: Square) => void;
+}) {
+  const [animatingMove, setAnimatingMove] = useState(lastMove);
+  const engine = useMemo(() => Chess.createEngine(fen), [fen]);
+  const legalSet = useMemo(() => new Set(legalTargets), [legalTargets]);
+  const files = orientation === "white" ? CHESS_FILES : [...CHESS_FILES].reverse();
+  const ranks = orientation === "white" ? CHESS_RANKS : [...CHESS_RANKS].reverse();
+
+  useEffect(() => {
+    if (!lastMove) return;
+    setAnimatingMove(lastMove);
+    const timeout = window.setTimeout(() => setAnimatingMove(null), 520);
+    return () => window.clearTimeout(timeout);
+  }, [lastMove?.from, lastMove?.to, lastMove?.san]);
+
+  return (
+    <div className="chess-stage">
+      <div className="chess-board" style={{ cursor: canMove ? "pointer" : "default" }}>
+        {ranks.map((rank, row) =>
+          files.map((file, col) => {
+            const square = `${file}${rank}` as Square;
+            const piece = engine.get(square);
+            const isLight = (row + col) % 2 === 0;
+            const isSelected = selectedSquare === square;
+            const isLegal = legalSet.has(square);
+            const isLastMove = lastMove?.from === square || lastMove?.to === square;
+            const hideStaticPiece = animatingMove?.to === square;
+            return (
+              <button
+                key={square}
+                type="button"
+                className={`chess-square ${isLight ? "chess-square-light" : "chess-square-dark"} ${
+                  isSelected ? "chess-square-selected" : ""
+                } ${isLegal ? "chess-square-legal" : ""} ${isLastMove ? "chess-square-last" : ""}`}
+                onClick={() => onSquareClick(square)}
+                aria-label={piece ? `${piece.color === "w" ? "White" : "Black"} ${piece.type} on ${square}` : square}
+              >
+                {isLegal && <span className={piece ? "chess-capture-ring" : "chess-move-dot"} />}
+                {piece && !hideStaticPiece && <ChessPiece piece={piece} />}
+              </button>
+            );
+          }),
+        )}
+        {animatingMove ? (
+          <MovingChessPiece
+            move={animatingMove}
+            engine={engine}
+            files={files}
+            ranks={ranks}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ChessPiece({ piece }: { piece: { color: "w" | "b"; type: string } }) {
+  return (
+    <span className={`chess-piece chess-piece-${piece.color}`}>
+      {PIECE_GLYPHS[`${piece.color}${piece.type}`]}
+    </span>
+  );
+}
+
+function MovingChessPiece({
+  move,
+  engine,
+  files,
+  ranks,
+}: {
+  move: { from: Square; to: Square; san: string };
+  engine: ReturnType<typeof Chess.createEngine>;
+  files: readonly string[];
+  ranks: readonly number[];
+}) {
+  const piece = engine.get(move.to);
+  if (!piece) return null;
+  const from = squarePosition(move.from, files, ranks);
+  const to = squarePosition(move.to, files, ranks);
+  return (
+    <div
+      className="chess-moving-piece"
+      style={
+        {
+          "--from-x": `${from.x}%`,
+          "--from-y": `${from.y}%`,
+          "--to-x": `${to.x}%`,
+          "--to-y": `${to.y}%`,
+        } as CSSProperties
+      }
+      aria-hidden
+    >
+      <ChessPiece piece={piece} />
+    </div>
+  );
+}
+
+function squarePosition(square: Square, files: readonly string[], ranks: readonly number[]) {
+  const file = square[0];
+  const rank = Number(square[1]);
+  const col = files.indexOf(file);
+  const row = ranks.indexOf(rank);
+  return {
+    x: col * 100,
+    y: row * 100,
+  };
 }
