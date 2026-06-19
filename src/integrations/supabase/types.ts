@@ -22,6 +22,7 @@ export type Database = {
           marked_numbers: number[]
           name: string
           purse: number
+          role: string
           room_id: string
           ticket: Json
         }
@@ -32,6 +33,7 @@ export type Database = {
           marked_numbers?: number[]
           name: string
           purse?: number
+          role?: string
           room_id: string
           ticket: Json
         }
@@ -42,6 +44,7 @@ export type Database = {
           marked_numbers?: number[]
           name?: string
           purse?: number
+          role?: string
           room_id?: string
           ticket?: Json
         }

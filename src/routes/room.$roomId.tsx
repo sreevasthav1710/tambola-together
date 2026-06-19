@@ -71,6 +71,7 @@ interface PlayerRow {
   game_state: SnakeLadderPlayerState | Chess.ChessPlayerState | Record<string, never>;
   marked_numbers: number[];
   purse: number;
+  role: "player" | "spectator";
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -111,7 +112,7 @@ function normalizeRoomRow(value: unknown): RoomRow {
     housies_won: asNumber(row.housies_won),
     claimed: asRecord(row.claimed) as Record<string, string | string[]>,
     game_type: asString(row.game_type, "tambola"),
-    game_state: asRecord(row.game_state),
+    game_state: asRecord(row.game_state) as RoomRow["game_state"],
     status: asString(row.status, "waiting"),
   };
 }
@@ -123,9 +124,10 @@ function normalizePlayerRow(value: unknown): PlayerRow {
     room_id: asString(row.room_id),
     name: asString(row.name, "Player"),
     ticket: Array.isArray(row.ticket) ? (row.ticket as Ticket) : [],
-    game_state: asRecord(row.game_state),
+    game_state: asRecord(row.game_state) as PlayerRow["game_state"],
     marked_numbers: asNumberArray(row.marked_numbers),
     purse: asNumber(row.purse),
+    role: row.role === "spectator" ? "spectator" : "player",
   };
 }
 
@@ -483,6 +485,24 @@ function RoomPage() {
   }
 
   const lastNumber = room.called_numbers[room.called_numbers.length - 1];
+  const activePlayers = players.filter((p) => p.role !== "spectator");
+  const spectators = players.filter((p) => p.role === "spectator");
+  const isSpectator = me.role === "spectator";
+
+  if (isSpectator) {
+    return (
+      <TambolaSpectatorView
+        room={room}
+        activePlayers={activePlayers}
+        spectators={spectators}
+        me={me}
+        onExit={() => setExitOpen(true)}
+        exitOpen={exitOpen}
+        setExitOpen={setExitOpen}
+        handleExit={handleExit}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-24 md:pb-6">
@@ -493,7 +513,9 @@ function RoomPage() {
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
             Code {room.id} · Host: {room.host_name}
-            {isHost && " (you)"} · {players.length}P · Housie {room.housies_won}/
+            {isHost && " (you)"} · {activePlayers.length}P
+            {spectators.length > 0 && ` · 👁 ${spectators.length}`}
+            {" · "}Housie {room.housies_won}/
             {room.housies_allowed}
           </p>
         </div>
@@ -684,7 +706,7 @@ function RoomPage() {
 
 function SnakeLadderRoom({
   room,
-  players,
+  players: allPlayers,
   me,
   isHost,
   onExit,
@@ -698,6 +720,9 @@ function SnakeLadderRoom({
   const [busy, setBusy] = useState(false);
   const [rollingDice, setRollingDice] = useState(false);
   const [rollingDiceValue, setRollingDiceValue] = useState<number | null>(null);
+  const spectators = allPlayers.filter((p) => p.role === "spectator");
+  const players = allPlayers.filter((p) => p.role !== "spectator");
+  const isSpectator = me.role === "spectator";
   const roomState = normalizeRoomState(room.game_state);
   const playerStates = players.map((player, index) =>
     normalizePlayerState(player.game_state, player.id, player.name, index),
@@ -974,12 +999,14 @@ function SnakeLadderRoom({
     <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-28 lg:pb-6">
       <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate flex items-center gap-2">
             {room.room_name || `Room ${room.id}`}
+            {isSpectator && <SpectatorBadge />}
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
             Snake N Ladder - Code {room.id} - Host: {room.host_name}
             {isHost && " (you)"} - {players.length}/{MAX_PLAYERS}P
+            {spectators.length > 0 && ` · 👁 ${spectators.length}`}
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -1151,6 +1178,19 @@ function SnakeLadderRoom({
               )}
             </ul>
           </Card>
+
+          {spectators.length > 0 && (
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-2">Spectators ({spectators.length})</div>
+              <ul className="space-y-1 text-sm">
+                {spectators.map((s) => (
+                  <li key={s.id} className={s.id === me.id ? "text-primary font-semibold" : "text-muted-foreground"}>
+                    👁 {s.name}{s.id === me.id ? " (you)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
         </aside>
       </div>
 
@@ -1972,9 +2012,172 @@ function Leaderboard({ room, players }: { room: RoomRow; players: PlayerRow[] })
   );
 }
 
+function SpectatorBadge({ count }: { count?: number }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 border border-amber-500/30">
+      👁 Spectating{typeof count === "number" ? ` · ${count}` : ""}
+    </span>
+  );
+}
+
+function TambolaSpectatorView({
+  room,
+  activePlayers,
+  spectators,
+  me,
+  onExit,
+  exitOpen,
+  setExitOpen,
+  handleExit,
+}: {
+  room: RoomRow;
+  activePlayers: PlayerRow[];
+  spectators: PlayerRow[];
+  me: PlayerRow;
+  onExit: () => void;
+  exitOpen: boolean;
+  setExitOpen: (v: boolean) => void;
+  handleExit: () => void;
+}) {
+  const called = new Set(room.called_numbers);
+  const lastNumber = room.called_numbers[room.called_numbers.length - 1];
+  return (
+    <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-6">
+      <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate flex items-center gap-2">
+            {room.room_name || `Room ${room.id}`} <SpectatorBadge />
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Code {room.id} · Host: {room.host_name} · {activePlayers.length} playing · {spectators.length} watching
+          </p>
+        </div>
+        <Button variant="destructive" size="sm" onClick={onExit}>
+          Exit
+        </Button>
+      </header>
+
+      {room.status === "ended" ? (
+        <Leaderboard room={room} players={activePlayers} />
+      ) : (
+        <div className="grid lg:grid-cols-[1fr_320px] gap-4 md:gap-6">
+          <div className="space-y-4">
+            <Card className="p-4 flex items-center gap-4">
+              <div className="text-center">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Last</div>
+                <div className="number-ball number-ball-called w-20 h-20 text-3xl">{lastNumber ?? "—"}</div>
+              </div>
+              <div className="flex-1">
+                <div className="text-2xl font-bold">{room.called_numbers.length}/90</div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wide">called</div>
+              </div>
+            </Card>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              {activePlayers.map((p) => (
+                <TambolaTicket
+                  key={p.id}
+                  ticket={p.ticket}
+                  marked={new Set(p.marked_numbers)}
+                  called={called}
+                  onCellClick={() => {}}
+                  playerName={`${p.name} · ${p.purse}`}
+                />
+              ))}
+              {activePlayers.length === 0 && (
+                <Card className="p-6 text-sm text-muted-foreground col-span-full">
+                  No active players yet.
+                </Card>
+              )}
+            </div>
+
+            <Card className="p-3 sm:p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-semibold">Called Numbers</div>
+                <div className="text-sm">{room.called_numbers.length}/90</div>
+              </div>
+              <div className="grid grid-cols-10 gap-1 sm:gap-1.5">
+                {Array.from({ length: 90 }, (_, i) => i + 1).map((n) => {
+                  const c = called.has(n);
+                  return (
+                    <div
+                      key={n}
+                      className={`aspect-square rounded flex items-center justify-center text-[10px] sm:text-xs font-bold ${
+                        c ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground/50"
+                      }`}
+                    >
+                      {n}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          </div>
+
+          <aside className="space-y-4">
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-3">Players</div>
+              <ul className="space-y-2 text-sm">
+                {activePlayers.map((p) => (
+                  <li key={p.id} className="flex justify-between">
+                    <span>{p.name} {p.id === room.host_player_id && "👑"}</span>
+                    <span className="text-muted-foreground">{p.purse}</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-3">Prizes Claimed</div>
+              <ul className="space-y-1 text-sm">
+                <ClaimedRow label="Fastest Five" claim={room.claimed.ff} players={activePlayers} />
+                <ClaimedRow label="Top Line" claim={room.claimed.line1} players={activePlayers} />
+                <ClaimedRow label="Middle Line" claim={room.claimed.line2} players={activePlayers} />
+                <ClaimedRow label="Bottom Line" claim={room.claimed.line3} players={activePlayers} />
+                <ClaimedRow label="Housie" claim={room.claimed.housie} players={activePlayers} />
+              </ul>
+            </Card>
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-2">Spectators ({spectators.length})</div>
+              <ul className="space-y-1 text-sm">
+                {spectators.map((s) => (
+                  <li key={s.id} className={s.id === me.id ? "text-primary font-semibold" : ""}>
+                    👁 {s.name}{s.id === me.id ? " (you)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </aside>
+        </div>
+      )}
+
+      <AlertDialog open={exitOpen} onOpenChange={setExitOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave spectator mode?</AlertDialogTitle>
+            <AlertDialogDescription>You'll stop watching this game.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setExitOpen(false);
+                setTimeout(() => {
+                  if (confirm("Really exit?")) handleExit();
+                }, 100);
+              }}
+            >
+              Exit
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 function ChessRoom({
   room,
-  players,
+  players: allPlayers,
   me,
   isHost,
   onExit,
@@ -1987,6 +2190,9 @@ function ChessRoom({
 }) {
   const [busy, setBusy] = useState(false);
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const spectators = allPlayers.filter((p) => p.role === "spectator");
+  const players = allPlayers.filter((p) => p.role !== "spectator");
+  const isSpectator = me.role === "spectator";
   const roomState = Chess.normalizeRoomState(room.game_state);
   const activeSide = Chess.turnSide(roomState.fen);
   const gameStatus = Chess.gameStatus(roomState.fen);
@@ -2143,12 +2349,14 @@ function ChessRoom({
     <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-28 lg:pb-6">
       <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate flex items-center gap-2">
             {room.room_name || `Room ${room.id}`}
+            {isSpectator && <SpectatorBadge />}
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
             Chess - Code {room.id} - Host: {room.host_name}
             {isHost && " (you)"} - {players.length}/{Chess.MAX_PLAYERS}P
+            {spectators.length > 0 && ` · 👁 ${spectators.length}`}
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -2176,6 +2384,12 @@ function ChessRoom({
 
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
         <Card className="p-3 sm:p-5 flex flex-col items-center justify-center overflow-hidden">
+          <ChessStatusBanner
+            kind={gameStatus.kind}
+            isMyTurn={isMyTurn}
+            winnerName={winner?.name ?? null}
+            iAmWinner={winner?.id === me.id}
+          />
           <ChessBoard
             fen={roomState.fen}
             selectedSquare={selectedSquare}
@@ -2183,21 +2397,7 @@ function ChessRoom({
             lastMove={roomState.lastMove}
             orientation={myChessState?.side === "black" ? "black" : "white"}
             canMove={isMyTurn}
-            alert={
-              gameStatus.kind === "check"
-                ? {
-                    title: isMyTurn ? "Your king is in check" : "Opponent is in check",
-                    detail: "The king must be protected on this move.",
-                  }
-                : gameStatus.kind === "checkmate"
-                  ? {
-                      title: winner?.id === me.id ? "Checkmate. You won" : "Checkmate",
-                      detail: winner
-                        ? `${winner.name} wins the game.`
-                        : "The game has ended.",
-                    }
-                  : null
-            }
+            showCheckBadge={gameStatus.kind === "check"}
             onSquareClick={handleSquareClick}
           />
           <div className="mt-4">
@@ -2212,6 +2412,15 @@ function ChessRoom({
               </Button>
             )}
           </div>
+          <ChessGameOverModal
+            open={gameStatus.kind === "checkmate" || gameStatus.kind === "stalemate" || gameStatus.kind === "draw"}
+            kind={gameStatus.kind}
+            winnerName={winner?.name ?? null}
+            iAmWinner={winner?.id === me.id}
+            isHost={isHost}
+            onRestart={handleRestart}
+            onExit={onExit}
+          />
         </Card>
 
         <aside className="space-y-4">
@@ -2239,6 +2448,19 @@ function ChessRoom({
               ))}
             </ul>
           </Card>
+
+          {spectators.length > 0 && (
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-2">Spectators ({spectators.length})</div>
+              <ul className="space-y-1 text-sm">
+                {spectators.map((s) => (
+                  <li key={s.id} className={s.id === me.id ? "text-primary font-semibold" : "text-muted-foreground"}>
+                    👁 {s.name}{s.id === me.id ? " (you)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           <Card className="p-4">
             <div className="text-sm font-semibold mb-3">Move History</div>
@@ -2287,7 +2509,7 @@ function ChessBoard({
   lastMove,
   orientation,
   canMove,
-  alert,
+  showCheckBadge,
   onSquareClick,
 }: {
   fen: string;
@@ -2296,7 +2518,7 @@ function ChessBoard({
   lastMove: { from: Square; to: Square; san: string } | null;
   orientation: "white" | "black";
   canMove: boolean;
-  alert: { title: string; detail: string } | null;
+  showCheckBadge: boolean;
   onSquareClick: (square: Square) => void;
 }) {
   const [animatingMove, setAnimatingMove] = useState(lastMove);
@@ -2369,15 +2591,115 @@ function ChessBoard({
               ranks={ranks}
             />
           ) : null}
-          {alert ? (
-            <div className="chess-alert" role="status" aria-live="polite">
-              <div className="chess-alert-title">{alert.title}</div>
-              <div className="chess-alert-detail">{alert.detail}</div>
+          {showCheckBadge ? (
+            <div className="chess-check-badge" role="status" aria-live="polite">
+              Check
             </div>
           ) : null}
         </div>
       </div>
     </div>
+  );
+}
+
+function ChessStatusBanner({
+  kind,
+  isMyTurn,
+  winnerName,
+  iAmWinner,
+}: {
+  kind: "playing" | "check" | "checkmate" | "stalemate" | "draw";
+  isMyTurn: boolean;
+  winnerName: string | null;
+  iAmWinner: boolean;
+}) {
+  const [showCheck, setShowCheck] = useState(false);
+  useEffect(() => {
+    if (kind !== "check") {
+      setShowCheck(false);
+      return;
+    }
+    setShowCheck(true);
+    const t = window.setTimeout(() => setShowCheck(false), 2500);
+    return () => window.clearTimeout(t);
+  }, [kind, isMyTurn]);
+
+  if (kind === "checkmate") {
+    return (
+      <div className="w-full mb-3 rounded-md border border-destructive/40 bg-destructive/15 px-3 py-2 text-center text-sm font-semibold text-destructive">
+        Checkmate — {iAmWinner ? "You won!" : winnerName ? `${winnerName} wins` : "Game over"}
+      </div>
+    );
+  }
+  if (kind === "stalemate" || kind === "draw") {
+    return (
+      <div className="w-full mb-3 rounded-md border border-border bg-muted px-3 py-2 text-center text-sm font-semibold">
+        {kind === "stalemate" ? "Stalemate" : "Draw"}
+      </div>
+    );
+  }
+  if (kind === "check" && showCheck) {
+    return (
+      <div className="w-full mb-3 rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-center text-sm font-semibold text-amber-600 dark:text-amber-400">
+        {isMyTurn ? "Your king is in check" : "Opponent is in check"}
+      </div>
+    );
+  }
+  return null;
+}
+
+function ChessGameOverModal({
+  open,
+  kind,
+  winnerName,
+  iAmWinner,
+  isHost,
+  onRestart,
+  onExit,
+}: {
+  open: boolean;
+  kind: "playing" | "check" | "checkmate" | "stalemate" | "draw";
+  winnerName: string | null;
+  iAmWinner: boolean;
+  isHost: boolean;
+  onRestart: () => void;
+  onExit: () => void;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    if (!open) setDismissed(false);
+  }, [open]);
+  const isOpen = open && !dismissed;
+  const title =
+    kind === "checkmate"
+      ? iAmWinner
+        ? "Checkmate — You won!"
+        : `Checkmate — ${winnerName ?? "Opponent"} wins`
+      : kind === "stalemate"
+        ? "Stalemate"
+        : "Draw";
+  return (
+    <AlertDialog open={isOpen} onOpenChange={(v) => !v && setDismissed(true)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {kind === "checkmate"
+              ? "The game has ended. You can close this to keep viewing the final board."
+              : "The game has ended without a winner."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setDismissed(true)}>Close</AlertDialogCancel>
+          {isHost ? (
+            <AlertDialogAction onClick={() => { setDismissed(true); onRestart(); }}>
+              New Game
+            </AlertDialogAction>
+          ) : null}
+          <AlertDialogAction onClick={onExit}>Exit Room</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

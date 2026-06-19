@@ -1,0 +1,2 @@
+ALTER TABLE public.players ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'player' CHECK (role IN ('player','spectator'));
+CREATE INDEX IF NOT EXISTS players_room_role_idx ON public.players(room_id, role);
