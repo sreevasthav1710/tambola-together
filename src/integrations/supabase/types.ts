@@ -16,9 +16,9 @@ export type Database = {
     Tables: {
       players: {
         Row: {
+          game_state: Json
           id: string
           joined_at: string
-          game_state: Json
           marked_numbers: number[]
           name: string
           purse: number
@@ -26,9 +26,9 @@ export type Database = {
           ticket: Json
         }
         Insert: {
+          game_state?: Json
           id?: string
           joined_at?: string
-          game_state?: Json
           marked_numbers?: number[]
           name: string
           purse?: number
@@ -36,9 +36,9 @@ export type Database = {
           ticket: Json
         }
         Update: {
+          game_state?: Json
           id?: string
           joined_at?: string
-          game_state?: Json
           marked_numbers?: number[]
           name?: string
           purse?: number
