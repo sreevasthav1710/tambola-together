@@ -294,6 +294,7 @@ function CreateRoomDialog({
       const ticket = generateTicket();
       const isSnakeLadder = gameType === "snake-ladder";
       const isChess = gameType === "chess";
+      const isCarrom = gameType === "carrom";
       const playerGameState = isSnakeLadder
         ? createPlayerState(playerId, hostName, 0, snakeColor)
         : isChess
@@ -310,7 +311,9 @@ function CreateRoomDialog({
           ? (createInitialRoomState() as never)
           : isChess
             ? (Chess.createInitialRoomState() as never)
-            : {},
+            : isCarrom
+              ? (Carrom.createInitialRoomState([playerId]) as never)
+              : {},
         visibility,
         pin: visibility === "private" ? cleanPin : null,
         prize_ff: ff,
