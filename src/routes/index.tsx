@@ -652,6 +652,12 @@ function JoinRoomDialog({
         if (room.game_type === "chess" && activePlayers.length >= Chess.MAX_PLAYERS) {
           return toast.error("This Chess room is full");
         }
+        if (room.game_type === "carrom" && freshRoom.status !== "waiting") {
+          return toast.error("Carrom has already started");
+        }
+        if (room.game_type === "carrom" && activePlayers.length >= Carrom.MAX_PLAYERS) {
+          return toast.error("This Carrom room is full");
+        }
         if (room.game_type === "snake-ladder") {
           const takenColors = takenColorsFor({ ...room, players: activePlayers });
           if (takenColors.includes(selectedColor)) {
