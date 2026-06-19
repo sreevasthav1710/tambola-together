@@ -484,6 +484,12 @@ function RoomPage() {
     );
   }
 
+  if (room.game_type === "carrom") {
+    return (
+      <CarromRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+    );
+  }
+
   const lastNumber = room.called_numbers[room.called_numbers.length - 1];
   const activePlayers = players.filter((p) => p.role !== "spectator");
   const spectators = players.filter((p) => p.role === "spectator");
