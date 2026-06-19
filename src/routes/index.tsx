@@ -444,9 +444,13 @@ function CreateRoomDialog({
                 Snake N Ladder rooms allow 2-6 players. The host starts the game after players join.
               </div>
             </div>
-          ) : (
+          ) : gameType === "chess" ? (
             <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
               Chess rooms allow exactly 2 players: White moves first, Black joins second.
+            </div>
+          ) : (
+            <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+              Carrom rooms allow 2-4 players. With 2 players: 1v1. With 4 players: opposite seats team up (bottom + top vs left + right).
             </div>
           )}
           <Button onClick={handleCreate} disabled={busy} className="w-full">
