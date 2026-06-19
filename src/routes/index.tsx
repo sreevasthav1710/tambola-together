@@ -606,6 +606,10 @@ function JoinRoomDialog({
         if (room.status !== "waiting") return toast.error("Chess has already started — join as spectator");
         if (activePlayers.length >= Chess.MAX_PLAYERS) return toast.error("This Chess room is full — join as spectator");
       }
+      if (room.game_type === "carrom") {
+        if (room.status !== "waiting") return toast.error("Carrom has already started — join as spectator");
+        if (activePlayers.length >= Carrom.MAX_PLAYERS) return toast.error("This Carrom room is full — join as spectator");
+      }
     }
     setConfirmOpen(true);
   }
