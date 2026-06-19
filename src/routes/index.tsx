@@ -275,7 +275,9 @@ function CreateRoomDialog({
       ? "Snake Ladder Challenge"
       : gameType === "chess"
         ? "Casual Chess"
-        : "Friday Housie Night";
+        : gameType === "carrom"
+          ? "Carrom Night"
+          : "Friday Housie Night";
 
   async function handleCreate() {
     const hostName = displayName.trim();
