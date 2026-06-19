@@ -2761,3 +2761,516 @@ function squarePosition(square: Square, files: readonly string[], ranks: readonl
     y: row * 100,
   };
 }
+
+// ============================================================================
+// Carrom
+// ============================================================================
+
+function CarromRoom({
+  room,
+  players: allPlayers,
+  me,
+  isHost,
+  onExit,
+}: {
+  room: RoomRow;
+  players: PlayerRow[];
+  me: PlayerRow;
+  isHost: boolean;
+  onExit: () => void;
+}) {
+  const spectators = allPlayers.filter((p) => p.role === "spectator");
+  const players = allPlayers.filter((p) => p.role !== "spectator");
+  const isSpectator = me.role === "spectator";
+  const state = Carrom.normalizeRoomState(room.game_state) ?? Carrom.createInitialRoomState(players.map((p) => p.id));
+  const [busy, setBusy] = useState(false);
+  const [animCoins, setAnimCoins] = useState<Carrom.Coin[] | null>(null);
+  const [aim, setAim] = useState<{ x: number; y: number; angle: number; power: number } | null>(null);
+  const [strikerPos, setStrikerPos] = useState<number>(Carrom.CENTER);
+  const lastSeenSeq = useRef(state.shotSeq);
+  const animRef = useRef<number | null>(null);
+
+  const seatIndex = state.turnOrder.indexOf(me.id);
+  const mySeat: Carrom.Seat | null = seatIndex >= 0 ? Carrom.seatForIndex(seatIndex) : null;
+  const myTeam: Carrom.Team | null = state.teams[me.id] ?? null;
+  const currentPlayerId = state.turnOrder[state.turnIndex];
+  const currentPlayer = players.find((p) => p.id === currentPlayerId);
+  const isMyTurn = !isSpectator && room.status === "playing" && currentPlayerId === me.id && state.phase === "aiming";
+
+  // Replay shot animation when shotSeq changes.
+  useEffect(() => {
+    if (state.shotSeq === lastSeenSeq.current) return;
+    if (!state.lastShot) {
+      lastSeenSeq.current = state.shotSeq;
+      return;
+    }
+    const { preCoins, angle, power, strikerX, strikerY } = state.lastShot;
+    const result = Carrom.simulateShot(preCoins, strikerX, strikerY, angle, power);
+    const frames = result.frames;
+    let i = 0;
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    const playFrame = () => {
+      if (i >= frames.length) {
+        setAnimCoins(null);
+        lastSeenSeq.current = state.shotSeq;
+        return;
+      }
+      setAnimCoins(frames[i]);
+      i++;
+      animRef.current = requestAnimationFrame(playFrame);
+    };
+    playFrame();
+    return () => {
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+    };
+  }, [state.shotSeq]);
+
+  // Compute striker baseline default position whenever my turn becomes active.
+  useEffect(() => {
+    if (!isMyTurn || !mySeat) return;
+    const b = Carrom.strikerBaseline(mySeat);
+    if (b.axis === "x") setStrikerPos(Carrom.CENTER);
+    else setStrikerPos(Carrom.CENTER);
+  }, [isMyTurn, mySeat]);
+
+  async function handleStart() {
+    if (!isHost) return;
+    if (players.length < Carrom.MIN_PLAYERS) return toast.error("Need at least 2 players");
+    if (players.length > Carrom.MAX_PLAYERS) return toast.error("Room is full");
+    setBusy(true);
+    try {
+      const fresh = Carrom.createInitialRoomState(players.map((p) => p.id));
+      const { error } = await supabase
+        .from("rooms")
+        .update({ status: "playing", game_state: fresh as never })
+        .eq("id", room.id);
+      if (error) throw error;
+      toast.success("Carrom started");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to start");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRestart() {
+    if (!isHost) return;
+    setBusy(true);
+    try {
+      const fresh = Carrom.createInitialRoomState(players.map((p) => p.id));
+      const { error } = await supabase
+        .from("rooms")
+        .update({ status: "waiting", game_state: fresh as never })
+        .eq("id", room.id);
+      if (error) throw error;
+      toast.success("Game reset");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to restart");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function commitShot(angle: number, power: number, sx: number, sy: number) {
+    if (!isMyTurn || !mySeat) return;
+    setBusy(true);
+    try {
+      const preCoins = state.coins.map((c) => ({ ...c }));
+      const result = Carrom.simulateShot(preCoins, sx, sy, angle, power);
+      const applied = Carrom.applyShot(
+        { ...state, lastShot: { playerId: me.id, angle, power, strikerX: sx, strikerY: sy, seq: state.shotSeq, preCoins } },
+        me.id,
+        result.pocketed,
+        result.finalCoins,
+      );
+      applied.nextState.lastShot = {
+        playerId: me.id,
+        angle,
+        power,
+        strikerX: sx,
+        strikerY: sy,
+        seq: applied.nextState.shotSeq,
+        preCoins,
+      };
+      const nextStatus = applied.nextState.winner ? "ended" : "playing";
+      const { error } = await supabase
+        .from("rooms")
+        .update({ game_state: applied.nextState as never, status: nextStatus })
+        .eq("id", room.id);
+      if (error) throw error;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to shoot");
+    } finally {
+      setBusy(false);
+      setAim(null);
+    }
+  }
+
+  const displayCoins = animCoins ?? state.coins;
+  const showStriker = isMyTurn && !animCoins;
+
+  return (
+    <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-6">
+      <header className="flex items-start justify-between mb-4 gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate flex items-center gap-2">
+            {room.room_name || `Room ${room.id}`}
+            {isSpectator && <SpectatorBadge />}
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Carrom · Code {room.id} · Host: {room.host_name}
+            {isHost && " (you)"} · {players.length}/{Carrom.MAX_PLAYERS}P
+            {spectators.length > 0 && ` · 👁 ${spectators.length}`}
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(room.id); toast.success("Code copied"); }}>
+            Copy
+          </Button>
+          <Button variant="destructive" size="sm" onClick={() => { if (confirm("Exit this room?")) onExit(); }}>
+            Exit
+          </Button>
+        </div>
+      </header>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+        <Card className="p-3 sm:p-4">
+          <CarromBoard
+            coins={displayCoins}
+            mySeat={isMyTurn ? mySeat : null}
+            strikerPos={strikerPos}
+            setStrikerPos={setStrikerPos}
+            aim={aim}
+            setAim={setAim}
+            onShoot={(angle, power, sx, sy) => void commitShot(angle, power, sx, sy)}
+            disabled={busy || !isMyTurn}
+          />
+          <div className="mt-3 text-center">
+            {room.status === "waiting" && isHost && (
+              <Button onClick={handleStart} disabled={busy || players.length < Carrom.MIN_PLAYERS}>
+                Start Game ({players.length}/{Carrom.MAX_PLAYERS})
+              </Button>
+            )}
+            {room.status === "waiting" && !isHost && (
+              <p className="text-sm text-muted-foreground">Waiting for host to start…</p>
+            )}
+            {state.winner && (
+              <div className="mt-2 rounded-md border border-primary/40 bg-primary/10 p-3 text-lg font-bold text-primary">
+                🏆 {state.winner === "white" ? "White" : "Black"} team wins!
+              </div>
+            )}
+            {isHost && room.status !== "waiting" && (
+              <Button onClick={handleRestart} variant="secondary" size="sm" className="mt-2">
+                Restart Game
+              </Button>
+            )}
+          </div>
+        </Card>
+
+        <aside className="space-y-4">
+          <Card className="p-4">
+            <div className="text-sm uppercase tracking-wide text-muted-foreground">Turn</div>
+            <div className="text-lg font-bold text-primary">
+              {room.status !== "playing"
+                ? "—"
+                : currentPlayer
+                  ? `${currentPlayer.name}${currentPlayer.id === me.id ? " (you)" : ""}`
+                  : "—"}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {isMyTurn ? "Drag the striker to aim and release to shoot" : busy ? "…" : "Watching"}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+              <div className="rounded bg-amber-100/10 p-2">
+                <div className="text-xs text-muted-foreground">White</div>
+                <div className="text-2xl font-bold">{state.scores.white}</div>
+              </div>
+              <div className="rounded bg-stone-900/40 p-2">
+                <div className="text-xs text-muted-foreground">Black</div>
+                <div className="text-2xl font-bold">{state.scores.black}</div>
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-muted-foreground">
+              Queen: {state.queenPocketedBy
+                ? `${state.queenPocketedBy} (${state.queenCovered ? "covered" : "uncovered"})`
+                : "on board"}
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="text-sm font-semibold mb-2">Players</div>
+            <ul className="space-y-1 text-sm">
+              {players.map((p, i) => {
+                const team = state.teams[p.id];
+                const seat = Carrom.seatForIndex(i);
+                return (
+                  <li key={p.id} className={`flex justify-between rounded px-2 py-1 ${p.id === currentPlayerId ? "bg-primary/10" : ""}`}>
+                    <span className={p.id === me.id ? "text-primary font-semibold" : ""}>
+                      {p.name}{p.id === room.host_player_id ? " 👑" : ""}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{seat} · {team ?? "—"}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+
+          <Card className="p-4">
+            <div className="text-sm font-semibold mb-2">Events</div>
+            <ul className="space-y-1 text-xs text-muted-foreground max-h-48 overflow-y-auto">
+              {state.eventLog.slice().reverse().map((e) => (
+                <li key={e.id}>{e.message}</li>
+              ))}
+              {state.eventLog.length === 0 && <li>No events yet.</li>}
+            </ul>
+          </Card>
+
+          {spectators.length > 0 && (
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-2">Spectators ({spectators.length})</div>
+              <ul className="space-y-1 text-sm">
+                {spectators.map((s) => (
+                  <li key={s.id} className={s.id === me.id ? "text-primary font-semibold" : "text-muted-foreground"}>
+                    👁 {s.name}{s.id === me.id ? " (you)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function CarromBoard({
+  coins,
+  mySeat,
+  strikerPos,
+  setStrikerPos,
+  aim,
+  setAim,
+  onShoot,
+  disabled,
+}: {
+  coins: Carrom.Coin[];
+  mySeat: Carrom.Seat | null;
+  strikerPos: number;
+  setStrikerPos: (n: number) => void;
+  aim: { x: number; y: number; angle: number; power: number } | null;
+  setAim: (a: { x: number; y: number; angle: number; power: number } | null) => void;
+  onShoot: (angle: number, power: number, sx: number, sy: number) => void;
+  disabled: boolean;
+}) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const dragging = useRef<"slide" | "aim" | null>(null);
+
+  const baseline = mySeat ? Carrom.strikerBaseline(mySeat) : null;
+  const strikerCoord =
+    baseline?.axis === "x"
+      ? { x: strikerPos, y: baseline.y! }
+      : baseline
+        ? { x: baseline.x!, y: strikerPos }
+        : null;
+
+  function getSvgPoint(evt: React.PointerEvent) {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const pt = svg.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    const transformed = pt.matrixTransform(ctm.inverse());
+    return { x: transformed.x, y: transformed.y };
+  }
+
+  function handleStrikerPointerDown(e: React.PointerEvent) {
+    if (disabled || !baseline || !strikerCoord) return;
+    e.preventDefault();
+    (e.target as Element).setPointerCapture(e.pointerId);
+    dragging.current = "aim";
+    const pt = getSvgPoint(e);
+    const dx = pt.x - strikerCoord.x;
+    const dy = pt.y - strikerCoord.y;
+    setAim({ x: pt.x, y: pt.y, angle: Math.atan2(dy, dx), power: 0 });
+  }
+
+  function handleSlidePointerDown(e: React.PointerEvent) {
+    if (disabled || !baseline) return;
+    e.preventDefault();
+    (e.target as Element).setPointerCapture(e.pointerId);
+    dragging.current = "slide";
+    const pt = getSvgPoint(e);
+    const v = baseline.axis === "x" ? pt.x : pt.y;
+    setStrikerPos(Math.max(baseline.min, Math.min(baseline.max, v)));
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!dragging.current) return;
+    const pt = getSvgPoint(e);
+    if (dragging.current === "slide" && baseline) {
+      const v = baseline.axis === "x" ? pt.x : pt.y;
+      setStrikerPos(Math.max(baseline.min, Math.min(baseline.max, v)));
+    } else if (dragging.current === "aim" && strikerCoord) {
+      // Drag BEHIND striker to set direction (shoot opposite the drag).
+      const dx = strikerCoord.x - pt.x;
+      const dy = strikerCoord.y - pt.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx);
+      const power = Math.min(Carrom.MAX_POWER, dist / 12);
+      setAim({ x: pt.x, y: pt.y, angle, power });
+    }
+  }
+
+  function handlePointerUp(e: React.PointerEvent) {
+    const was = dragging.current;
+    dragging.current = null;
+    try {
+      (e.target as Element).releasePointerCapture(e.pointerId);
+    } catch {/* */}
+    if (was === "aim" && aim && strikerCoord && aim.power > 1) {
+      onShoot(aim.angle, aim.power, strikerCoord.x, strikerCoord.y);
+    } else {
+      setAim(null);
+    }
+  }
+
+  return (
+    <svg
+      ref={svgRef}
+      viewBox={`0 0 ${Carrom.BOARD} ${Carrom.BOARD}`}
+      className="w-full h-auto max-w-[700px] mx-auto touch-none select-none"
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+    >
+      <defs>
+        <radialGradient id="carrom-wood" cx="50%" cy="50%" r="65%">
+          <stop offset="0%" stopColor="#e8c993" />
+          <stop offset="60%" stopColor="#c68b4f" />
+          <stop offset="100%" stopColor="#7a4422" />
+        </radialGradient>
+      </defs>
+      {/* Outer wooden frame */}
+      <rect x="0" y="0" width={Carrom.BOARD} height={Carrom.BOARD} fill="#3a200f" />
+      <rect x="20" y="20" width={Carrom.BOARD - 40} height={Carrom.BOARD - 40} fill="url(#carrom-wood)" rx="6" />
+      {/* Play area border */}
+      <rect
+        x={Carrom.PLAY_MIN}
+        y={Carrom.PLAY_MIN}
+        width={Carrom.PLAY_MAX - Carrom.PLAY_MIN}
+        height={Carrom.PLAY_MAX - Carrom.PLAY_MIN}
+        fill="none"
+        stroke="#5a2e10"
+        strokeWidth="3"
+      />
+      {/* Baselines for each seat */}
+      {(["bottom", "top", "left", "right"] as Carrom.Seat[]).map((s) => {
+        const b = Carrom.strikerBaseline(s);
+        const isMy = s === mySeat;
+        const color = isMy ? "#ffd54a" : "#8a4a20";
+        const w = isMy ? 3 : 1.5;
+        if (b.axis === "x") {
+          return <line key={s} x1={b.min} y1={b.y!} x2={b.max} y2={b.y!} stroke={color} strokeWidth={w} strokeDasharray="6 4" />;
+        }
+        return <line key={s} x1={b.x!} y1={b.min} x2={b.x!} y2={b.max} stroke={color} strokeWidth={w} strokeDasharray="6 4" />;
+      })}
+      {/* Center circle */}
+      <circle cx={Carrom.CENTER} cy={Carrom.CENTER} r={Carrom.CENTER_RING_RADIUS} fill="none" stroke="#5a2e10" strokeWidth="2" />
+      <circle cx={Carrom.CENTER} cy={Carrom.CENTER} r="14" fill="none" stroke="#7a3a18" strokeWidth="2" />
+      {/* Pockets */}
+      {Carrom.POCKETS.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r={Carrom.POCKET_RADIUS + 4} fill="#1a0a04" />
+          <circle cx={p.x} cy={p.y} r={Carrom.POCKET_RADIUS} fill="#000" />
+        </g>
+      ))}
+      {/* Coins */}
+      {coins.filter((c) => !c.pocketed).map((c) => (
+        <CoinShape key={c.id} coin={c} />
+      ))}
+      {/* Striker (only for active player, not animating) */}
+      {strikerCoord && (
+        <g
+          onPointerDown={handleStrikerPointerDown}
+          style={{ cursor: disabled ? "default" : "grab" }}
+        >
+          {/* Slide handle on baseline */}
+          {baseline && baseline.axis === "x" && (
+            <rect
+              x={baseline.min}
+              y={baseline.y! - 14}
+              width={baseline.max - baseline.min}
+              height={28}
+              fill="transparent"
+              onPointerDown={handleSlidePointerDown}
+            />
+          )}
+          {baseline && baseline.axis === "y" && (
+            <rect
+              x={baseline.x! - 14}
+              y={baseline.min}
+              width={28}
+              height={baseline.max - baseline.min}
+              fill="transparent"
+              onPointerDown={handleSlidePointerDown}
+            />
+          )}
+          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS} fill="#f8f4e8" stroke="#5a2e10" strokeWidth="2" />
+          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS - 6} fill="none" stroke="#c19a5b" strokeWidth="1.5" />
+        </g>
+      )}
+      {/* Aim line */}
+      {aim && strikerCoord && (
+        <>
+          <line
+            x1={strikerCoord.x}
+            y1={strikerCoord.y}
+            x2={strikerCoord.x + Math.cos(aim.angle) * 200}
+            y2={strikerCoord.y + Math.sin(aim.angle) * 200}
+            stroke="#fff"
+            strokeWidth="2"
+            strokeDasharray="6 4"
+            opacity="0.85"
+          />
+          {/* Power bar */}
+          <rect x={strikerCoord.x - 30} y={strikerCoord.y + 30} width="60" height="8" fill="#000" opacity="0.4" />
+          <rect
+            x={strikerCoord.x - 30}
+            y={strikerCoord.y + 30}
+            width={60 * (aim.power / Carrom.MAX_POWER)}
+            height="8"
+            fill="#ffd54a"
+          />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function CoinShape({ coin }: { coin: Carrom.Coin }) {
+  if (coin.type === "queen") {
+    return (
+      <g>
+        <circle cx={coin.x} cy={coin.y} r={coin.radius} fill="#c0392b" stroke="#7b1f12" strokeWidth="1.5" />
+        <circle cx={coin.x} cy={coin.y} r={coin.radius - 5} fill="none" stroke="#fff" strokeWidth="1" opacity="0.5" />
+      </g>
+    );
+  }
+  if (coin.type === "white") {
+    return (
+      <g>
+        <circle cx={coin.x} cy={coin.y} r={coin.radius} fill="#f4ecd6" stroke="#7a5a30" strokeWidth="1.2" />
+        <circle cx={coin.x} cy={coin.y} r={coin.radius - 5} fill="none" stroke="#bda060" strokeWidth="0.8" />
+      </g>
+    );
+  }
+  // black
+  return (
+    <g>
+      <circle cx={coin.x} cy={coin.y} r={coin.radius} fill="#2c2118" stroke="#0a0604" strokeWidth="1.2" />
+      <circle cx={coin.x} cy={coin.y} r={coin.radius - 5} fill="none" stroke="#5a4628" strokeWidth="0.8" />
+    </g>
+  );
+}
