@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Crown, Dice5, Lock, RefreshCw, Ticket, UserRound } from "lucide-react";
+import { ArrowLeft, Circle, Crown, Dice5, Lock, RefreshCw, Ticket, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
