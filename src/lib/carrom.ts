@@ -75,6 +75,7 @@ export interface CarromRoomState {
     strikerX: number;
     strikerY: number;
     seq: number;
+    preCoins: Coin[];
   } | null;
   eventLog: { id: string; message: string; at: number }[];
   // Sequence counter so clients know when to re-run the simulation.
