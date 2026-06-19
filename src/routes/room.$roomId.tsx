@@ -39,6 +39,7 @@ import {
   type SnakeLadderRoomState,
 } from "@/lib/snakeLadder";
 import * as Chess from "@/lib/chess";
+import * as Carrom from "@/lib/carrom";
 
 const CLAIM_TYPES: ClaimType[] = ["ff", "line1", "line2", "line3", "housie"];
 
