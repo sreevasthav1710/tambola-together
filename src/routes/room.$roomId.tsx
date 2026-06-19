@@ -3078,6 +3078,12 @@ function CarromBoard({
       : baseline
         ? { x: baseline.x!, y: strikerPos }
         : null;
+  const viewRotation = mySeat ? rotationForBottomSeat(mySeat) : 0;
+  const boardTransform = viewRotation === 0 ? undefined : `rotate(${viewRotation} ${Carrom.CENTER} ${Carrom.CENTER})`;
+
+  function pointFromView(point: { x: number; y: number }) {
+    return rotateBoardPoint(point, -viewRotation);
+  }
 
   function getSvgPoint(evt: React.PointerEvent) {
     const svg = svgRef.current;
@@ -3096,7 +3102,7 @@ function CarromBoard({
     e.preventDefault();
     (e.target as Element).setPointerCapture(e.pointerId);
     dragging.current = "aim";
-    const pt = getSvgPoint(e);
+    const pt = pointFromView(getSvgPoint(e));
     const dx = pt.x - strikerCoord.x;
     const dy = pt.y - strikerCoord.y;
     setAim({ x: pt.x, y: pt.y, angle: Math.atan2(dy, dx), power: 0 });
@@ -3107,14 +3113,14 @@ function CarromBoard({
     e.preventDefault();
     (e.target as Element).setPointerCapture(e.pointerId);
     dragging.current = "slide";
-    const pt = getSvgPoint(e);
+    const pt = pointFromView(getSvgPoint(e));
     const v = baseline.axis === "x" ? pt.x : pt.y;
     setStrikerPos(Math.max(baseline.min, Math.min(baseline.max, v)));
   }
 
   function handlePointerMove(e: React.PointerEvent) {
     if (!dragging.current) return;
-    const pt = getSvgPoint(e);
+    const pt = pointFromView(getSvgPoint(e));
     if (dragging.current === "slide" && baseline) {
       const v = baseline.axis === "x" ? pt.x : pt.y;
       setStrikerPos(Math.max(baseline.min, Math.min(baseline.max, v)));
@@ -3170,6 +3176,7 @@ function CarromBoard({
           <feDropShadow dx="0" dy="8" stdDeviation="7" floodColor="#1b0504" floodOpacity="0.55" />
         </filter>
       </defs>
+      <g transform={boardTransform}>
       {/* Outer wooden frame */}
       <rect x="0" y="0" width={Carrom.BOARD} height={Carrom.BOARD} rx="32" fill="url(#carrom-frame)" />
       <rect x="18" y="18" width={Carrom.BOARD - 36} height={Carrom.BOARD - 36} rx="24" fill="#210904" />
@@ -3290,6 +3297,7 @@ function CarromBoard({
           />
         </>
       )}
+      </g>
       </svg>
       <div className="mx-auto mt-3 flex h-9 w-[78%] max-w-[420px] items-center rounded-full border border-[#f6c856]/50 bg-[#2f0d09] px-2 shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_5px_14px_rgba(0,0,0,0.35)]">
         <div className="relative h-4 flex-1 overflow-hidden rounded-full border border-[#823317] bg-gradient-to-b from-[#bc8152] to-[#4b170d]">
@@ -3305,6 +3313,24 @@ function CarromBoard({
       </div>
     </div>
   );
+}
+
+function rotationForBottomSeat(seat: Carrom.Seat) {
+  if (seat === "right") return 90;
+  if (seat === "top") return 180;
+  if (seat === "left") return -90;
+  return 0;
+}
+
+function rotateBoardPoint(point: { x: number; y: number }, degrees: number) {
+  if (degrees === 0) return point;
+  const radians = (degrees * Math.PI) / 180;
+  const dx = point.x - Carrom.CENTER;
+  const dy = point.y - Carrom.CENTER;
+  return {
+    x: Carrom.CENTER + dx * Math.cos(radians) - dy * Math.sin(radians),
+    y: Carrom.CENTER + dx * Math.sin(radians) + dy * Math.cos(radians),
+  };
 }
 
 function CoinShape({ coin }: { coin: Carrom.Coin }) {
