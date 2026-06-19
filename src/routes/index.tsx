@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Crown, Dice5, Lock, RefreshCw, Ticket, UserRound } from "lucide-react";
+import { ArrowLeft, Circle, Crown, Dice5, Lock, RefreshCw, Ticket, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,8 +33,9 @@ import {
   MAX_PLAYERS,
 } from "@/lib/snakeLadder";
 import * as Chess from "@/lib/chess";
+import * as Carrom from "@/lib/carrom";
 
-type GameType = "tambola" | "snake-ladder" | "chess";
+type GameType = "tambola" | "snake-ladder" | "chess" | "carrom";
 
 const GAME_META: Record<GameType, { title: string; description: string; icon: typeof Ticket }> = {
   tambola: {
@@ -51,6 +52,11 @@ const GAME_META: Record<GameType, { title: string; description: string; icon: ty
     title: "Chess",
     description: "Two-player chess with realtime play and move history.",
     icon: UserRound,
+  },
+  carrom: {
+    title: "Carrom",
+    description: "2-4 player carrom with realistic physics, queen cover rule, and team play.",
+    icon: Circle,
   },
 };
 
@@ -269,7 +275,9 @@ function CreateRoomDialog({
       ? "Snake Ladder Challenge"
       : gameType === "chess"
         ? "Casual Chess"
-        : "Friday Housie Night";
+        : gameType === "carrom"
+          ? "Carrom Night"
+          : "Friday Housie Night";
 
   async function handleCreate() {
     const hostName = displayName.trim();
@@ -286,6 +294,7 @@ function CreateRoomDialog({
       const ticket = generateTicket();
       const isSnakeLadder = gameType === "snake-ladder";
       const isChess = gameType === "chess";
+      const isCarrom = gameType === "carrom";
       const playerGameState = isSnakeLadder
         ? createPlayerState(playerId, hostName, 0, snakeColor)
         : isChess
@@ -302,7 +311,9 @@ function CreateRoomDialog({
           ? (createInitialRoomState() as never)
           : isChess
             ? (Chess.createInitialRoomState() as never)
-            : {},
+            : isCarrom
+              ? (Carrom.createInitialRoomState([playerId]) as never)
+              : {},
         visibility,
         pin: visibility === "private" ? cleanPin : null,
         prize_ff: ff,
@@ -433,9 +444,13 @@ function CreateRoomDialog({
                 Snake N Ladder rooms allow 2-6 players. The host starts the game after players join.
               </div>
             </div>
-          ) : (
+          ) : gameType === "chess" ? (
             <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
               Chess rooms allow exactly 2 players: White moves first, Black joins second.
+            </div>
+          ) : (
+            <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+              Carrom rooms allow 2-4 players. With 2 players: 1v1. With 4 players: opposite seats team up (bottom + top vs left + right).
             </div>
           )}
           <Button onClick={handleCreate} disabled={busy} className="w-full">
@@ -522,7 +537,7 @@ type LobbyRoom = {
   pin: string | null;
   status: string;
   created_at: string;
-  players?: { id: string; name?: string; game_state?: { color?: string } | null }[];
+  players?: { id: string; name?: string; game_state?: { color?: string } | null; role?: string }[];
 };
 
 function JoinRoomDialog({
@@ -539,6 +554,7 @@ function JoinRoomDialog({
   const [pin, setPin] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [selectedColor, setSelectedColor] = useState(PLAYER_COLORS[0]);
+  const [joinRole, setJoinRole] = useState<"player" | "spectator">("player");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -552,19 +568,16 @@ function JoinRoomDialog({
       const { data, error } = await supabase
         .from("rooms")
         .select(
-          "id,room_name,game_type,host_name,visibility,pin,status,created_at,players!inner(id,name,game_state)",
+          "id,room_name,game_type,host_name,visibility,pin,status,created_at,players!inner(id,name,game_state,role)",
         )
         .in("status", ["waiting", "playing"])
         .eq("game_type", gameType)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      const openRooms = ((data ?? []) as LobbyRoom[]).filter((room) => {
-        if ((room.players?.length ?? 0) === 0) return false;
-        // Only allow joining snake-ladder or chess rooms that haven't started
-        if (room.game_type === "snake-ladder" && room.status !== "waiting") return false;
-        if (room.game_type === "chess" && room.status !== "waiting") return false;
-        return true;
-      });
+      // Show all open rooms — spectators can join in-progress games too.
+      const openRooms = ((data ?? []) as LobbyRoom[]).filter(
+        (room) => (room.players?.length ?? 0) > 0,
+      );
       setRooms(openRooms);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to load rooms";
@@ -574,19 +587,29 @@ function JoinRoomDialog({
     }
   }
 
-  function requestJoin(room: LobbyRoom) {
+  function requestJoin(room: LobbyRoom, role: "player" | "spectator") {
     if (!displayName.trim()) return toast.error("Set your profile display name first");
     setSelectedRoom(room);
+    setJoinRole(role);
     if (room.visibility === "private" && pin.trim() !== (room.pin ?? "")) {
       return toast.error("Enter the correct private room PIN");
     }
-    if (room.game_type === "snake-ladder") {
-      const availableColor = PLAYER_COLORS.find((color) => !takenColorsFor(room).includes(color));
-      if (!availableColor) return toast.error("All player colors are taken");
-      setSelectedColor(availableColor);
-    }
-    if (room.game_type === "chess") {
-      if ((room.players?.length ?? 0) >= Chess.MAX_PLAYERS) return toast.error("This Chess room is full");
+    if (role === "player") {
+      const activePlayers = (room.players ?? []).filter((p) => p.role !== "spectator");
+      if (room.game_type === "snake-ladder") {
+        if (room.status !== "waiting") return toast.error("Snake N Ladder has already started — join as spectator");
+        const availableColor = PLAYER_COLORS.find((color) => !takenColorsFor(room).includes(color));
+        if (!availableColor) return toast.error("All player colors are taken");
+        setSelectedColor(availableColor);
+      }
+      if (room.game_type === "chess") {
+        if (room.status !== "waiting") return toast.error("Chess has already started — join as spectator");
+        if (activePlayers.length >= Chess.MAX_PLAYERS) return toast.error("This Chess room is full — join as spectator");
+      }
+      if (room.game_type === "carrom") {
+        if (room.status !== "waiting") return toast.error("Carrom has already started — join as spectator");
+        if (activePlayers.length >= Carrom.MAX_PLAYERS) return toast.error("This Carrom room is full — join as spectator");
+      }
     }
     setConfirmOpen(true);
   }
@@ -601,7 +624,7 @@ function JoinRoomDialog({
     try {
       const { data: freshRoom, error: rErr } = await supabase
         .from("rooms")
-        .select("id,status,players(id,name,game_state)")
+        .select("id,status,players(id,name,game_state,role)")
         .eq("id", room.id)
         .maybeSingle();
       if (rErr) throw rErr;
@@ -610,28 +633,41 @@ function JoinRoomDialog({
       if (freshRoom.status === "stopped") return toast.error("This room is stopped");
       if (!["waiting", "playing"].includes(freshRoom.status))
         return toast.error("This room is not open");
-      if (room.game_type === "snake-ladder" && freshRoom.status !== "waiting") {
-        return toast.error("Snake N Ladder has already started");
-      }
-      if (room.game_type === "chess" && freshRoom.status !== "waiting") {
-        return toast.error("Chess has already started");
-      }
-      const currentPlayers = (freshRoom as unknown as LobbyRoom).players ?? [];
-      if (currentPlayers.length === 0) return toast.error("This room is empty");
-      if (room.game_type === "snake-ladder" && currentPlayers.length >= MAX_PLAYERS) {
-        return toast.error("This Snake N Ladder room is full");
-      }
-      if (room.game_type === "chess" && currentPlayers.length >= Chess.MAX_PLAYERS) {
-        return toast.error("This Chess room is full");
-      }
-      if (room.game_type === "snake-ladder") {
-        const takenColors = takenColorsFor({ ...room, players: currentPlayers });
-        if (takenColors.includes(selectedColor)) {
-          return toast.error("That color is already taken in this room");
+      const allPlayers = ((freshRoom as unknown as LobbyRoom).players ?? []) as Array<{
+        id: string; name?: string; game_state?: { color?: string } | null; role?: string;
+      }>;
+      const activePlayers = allPlayers.filter((p) => p.role !== "spectator");
+      if (allPlayers.length === 0) return toast.error("This room is empty");
+
+      if (joinRole === "player") {
+        if (room.game_type === "snake-ladder" && freshRoom.status !== "waiting") {
+          return toast.error("Snake N Ladder has already started");
+        }
+        if (room.game_type === "chess" && freshRoom.status !== "waiting") {
+          return toast.error("Chess has already started");
+        }
+        if (room.game_type === "snake-ladder" && activePlayers.length >= MAX_PLAYERS) {
+          return toast.error("This Snake N Ladder room is full");
+        }
+        if (room.game_type === "chess" && activePlayers.length >= Chess.MAX_PLAYERS) {
+          return toast.error("This Chess room is full");
+        }
+        if (room.game_type === "carrom" && freshRoom.status !== "waiting") {
+          return toast.error("Carrom has already started");
+        }
+        if (room.game_type === "carrom" && activePlayers.length >= Carrom.MAX_PLAYERS) {
+          return toast.error("This Carrom room is full");
+        }
+        if (room.game_type === "snake-ladder") {
+          const takenColors = takenColorsFor({ ...room, players: activePlayers });
+          if (takenColors.includes(selectedColor)) {
+            return toast.error("That color is already taken in this room");
+          }
         }
       }
+
       if (
-        currentPlayers.some(
+        allPlayers.some(
           (player) => player.name?.trim().toLowerCase() === playerName.toLowerCase(),
         )
       ) {
@@ -641,17 +677,20 @@ function JoinRoomDialog({
       const playerId = createPlayerId();
       const ticket = generateTicket();
       const playerGameState =
-        room.game_type === "snake-ladder"
-          ? createPlayerState(playerId, playerName, currentPlayers.length, selectedColor)
-          : room.game_type === "chess"
-          ? Chess.createPlayerState(playerId, playerName, currentPlayers.length)
-          : {};
+        joinRole === "spectator"
+          ? {}
+          : room.game_type === "snake-ladder"
+            ? createPlayerState(playerId, playerName, activePlayers.length, selectedColor)
+            : room.game_type === "chess"
+              ? Chess.createPlayerState(playerId, playerName, activePlayers.length)
+              : {};
       const { error: pErr } = await supabase.from("players").insert({
         id: playerId,
         room_id: room.id,
         name: playerName,
         ticket: ticket as never,
         game_state: playerGameState as never,
+        role: joinRole,
       });
       if (pErr) {
         if (pErr.code === "23505") {
@@ -727,9 +766,19 @@ function JoinRoomDialog({
                         {room.status}
                       </div>
                     </div>
-                    <Button type="button" size="sm" onClick={() => requestJoin(room)}>
-                      Join
-                    </Button>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <Button type="button" size="sm" onClick={() => requestJoin(room, "player")}>
+                        Join
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => requestJoin(room, "spectator")}
+                      >
+                        Watch
+                      </Button>
+                    </div>
                   </div>
                   {selectedRoom?.id === room.id && room.visibility === "private" && (
                     <div className="mt-3">
@@ -751,9 +800,16 @@ function JoinRoomDialog({
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Join {selectedRoom?.room_name || "this room"}?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {joinRole === "spectator" ? "Watch" : "Join"} {selectedRoom?.room_name || "this room"}?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedRoom?.game_type === "chess" ? (
+              {joinRole === "spectator" ? (
+                <>
+                  You will enter as <b>{displayName || "your profile name"}</b> in spectator mode. You
+                  can watch the game live but cannot play.
+                </>
+              ) : selectedRoom?.game_type === "chess" ? (
                 <>
                   <Crown className="mr-1 inline h-4 w-4 align-[-2px]" />
                   You will enter as {displayName || "your profile name"} and take the Black side.
@@ -766,7 +822,7 @@ function JoinRoomDialog({
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {selectedRoom?.game_type === "snake-ladder" && (
+          {joinRole === "player" && selectedRoom?.game_type === "snake-ladder" && (
             <ColorPicker
               selectedColor={selectedColor}
               takenColors={takenColorsFor(selectedRoom)}
@@ -776,7 +832,7 @@ function JoinRoomDialog({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleJoin} disabled={busy}>
-              {busy ? "Joining..." : "Join Room"}
+              {busy ? "Joining..." : joinRole === "spectator" ? "Watch Game" : "Join Room"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

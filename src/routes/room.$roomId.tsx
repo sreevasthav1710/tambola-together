@@ -39,6 +39,7 @@ import {
   type SnakeLadderRoomState,
 } from "@/lib/snakeLadder";
 import * as Chess from "@/lib/chess";
+import * as Carrom from "@/lib/carrom";
 
 const CLAIM_TYPES: ClaimType[] = ["ff", "line1", "line2", "line3", "housie"];
 
@@ -71,6 +72,7 @@ interface PlayerRow {
   game_state: SnakeLadderPlayerState | Chess.ChessPlayerState | Record<string, never>;
   marked_numbers: number[];
   purse: number;
+  role: "player" | "spectator";
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -111,7 +113,7 @@ function normalizeRoomRow(value: unknown): RoomRow {
     housies_won: asNumber(row.housies_won),
     claimed: asRecord(row.claimed) as Record<string, string | string[]>,
     game_type: asString(row.game_type, "tambola"),
-    game_state: asRecord(row.game_state),
+    game_state: asRecord(row.game_state) as RoomRow["game_state"],
     status: asString(row.status, "waiting"),
   };
 }
@@ -123,9 +125,10 @@ function normalizePlayerRow(value: unknown): PlayerRow {
     room_id: asString(row.room_id),
     name: asString(row.name, "Player"),
     ticket: Array.isArray(row.ticket) ? (row.ticket as Ticket) : [],
-    game_state: asRecord(row.game_state),
+    game_state: asRecord(row.game_state) as PlayerRow["game_state"],
     marked_numbers: asNumberArray(row.marked_numbers),
     purse: asNumber(row.purse),
+    role: row.role === "spectator" ? "spectator" : "player",
   };
 }
 
@@ -482,7 +485,31 @@ function RoomPage() {
     );
   }
 
+  if (room.game_type === "carrom") {
+    return (
+      <CarromRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+    );
+  }
+
   const lastNumber = room.called_numbers[room.called_numbers.length - 1];
+  const activePlayers = players.filter((p) => p.role !== "spectator");
+  const spectators = players.filter((p) => p.role === "spectator");
+  const isSpectator = me.role === "spectator";
+
+  if (isSpectator) {
+    return (
+      <TambolaSpectatorView
+        room={room}
+        activePlayers={activePlayers}
+        spectators={spectators}
+        me={me}
+        onExit={() => setExitOpen(true)}
+        exitOpen={exitOpen}
+        setExitOpen={setExitOpen}
+        handleExit={handleExit}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-24 md:pb-6">
@@ -493,7 +520,9 @@ function RoomPage() {
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
             Code {room.id} · Host: {room.host_name}
-            {isHost && " (you)"} · {players.length}P · Housie {room.housies_won}/
+            {isHost && " (you)"} · {activePlayers.length}P
+            {spectators.length > 0 && ` · 👁 ${spectators.length}`}
+            {" · "}Housie {room.housies_won}/
             {room.housies_allowed}
           </p>
         </div>
@@ -684,7 +713,7 @@ function RoomPage() {
 
 function SnakeLadderRoom({
   room,
-  players,
+  players: allPlayers,
   me,
   isHost,
   onExit,
@@ -698,6 +727,9 @@ function SnakeLadderRoom({
   const [busy, setBusy] = useState(false);
   const [rollingDice, setRollingDice] = useState(false);
   const [rollingDiceValue, setRollingDiceValue] = useState<number | null>(null);
+  const spectators = allPlayers.filter((p) => p.role === "spectator");
+  const players = allPlayers.filter((p) => p.role !== "spectator");
+  const isSpectator = me.role === "spectator";
   const roomState = normalizeRoomState(room.game_state);
   const playerStates = players.map((player, index) =>
     normalizePlayerState(player.game_state, player.id, player.name, index),
@@ -974,12 +1006,14 @@ function SnakeLadderRoom({
     <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-28 lg:pb-6">
       <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate flex items-center gap-2">
             {room.room_name || `Room ${room.id}`}
+            {isSpectator && <SpectatorBadge />}
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
             Snake N Ladder - Code {room.id} - Host: {room.host_name}
             {isHost && " (you)"} - {players.length}/{MAX_PLAYERS}P
+            {spectators.length > 0 && ` · 👁 ${spectators.length}`}
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -1151,6 +1185,19 @@ function SnakeLadderRoom({
               )}
             </ul>
           </Card>
+
+          {spectators.length > 0 && (
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-2">Spectators ({spectators.length})</div>
+              <ul className="space-y-1 text-sm">
+                {spectators.map((s) => (
+                  <li key={s.id} className={s.id === me.id ? "text-primary font-semibold" : "text-muted-foreground"}>
+                    👁 {s.name}{s.id === me.id ? " (you)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
         </aside>
       </div>
 
@@ -1972,9 +2019,172 @@ function Leaderboard({ room, players }: { room: RoomRow; players: PlayerRow[] })
   );
 }
 
+function SpectatorBadge({ count }: { count?: number }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 border border-amber-500/30">
+      👁 Spectating{typeof count === "number" ? ` · ${count}` : ""}
+    </span>
+  );
+}
+
+function TambolaSpectatorView({
+  room,
+  activePlayers,
+  spectators,
+  me,
+  onExit,
+  exitOpen,
+  setExitOpen,
+  handleExit,
+}: {
+  room: RoomRow;
+  activePlayers: PlayerRow[];
+  spectators: PlayerRow[];
+  me: PlayerRow;
+  onExit: () => void;
+  exitOpen: boolean;
+  setExitOpen: (v: boolean) => void;
+  handleExit: () => void;
+}) {
+  const called = new Set(room.called_numbers);
+  const lastNumber = room.called_numbers[room.called_numbers.length - 1];
+  return (
+    <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-6">
+      <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate flex items-center gap-2">
+            {room.room_name || `Room ${room.id}`} <SpectatorBadge />
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Code {room.id} · Host: {room.host_name} · {activePlayers.length} playing · {spectators.length} watching
+          </p>
+        </div>
+        <Button variant="destructive" size="sm" onClick={onExit}>
+          Exit
+        </Button>
+      </header>
+
+      {room.status === "ended" ? (
+        <Leaderboard room={room} players={activePlayers} />
+      ) : (
+        <div className="grid lg:grid-cols-[1fr_320px] gap-4 md:gap-6">
+          <div className="space-y-4">
+            <Card className="p-4 flex items-center gap-4">
+              <div className="text-center">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Last</div>
+                <div className="number-ball number-ball-called w-20 h-20 text-3xl">{lastNumber ?? "—"}</div>
+              </div>
+              <div className="flex-1">
+                <div className="text-2xl font-bold">{room.called_numbers.length}/90</div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wide">called</div>
+              </div>
+            </Card>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              {activePlayers.map((p) => (
+                <TambolaTicket
+                  key={p.id}
+                  ticket={p.ticket}
+                  marked={new Set(p.marked_numbers)}
+                  called={called}
+                  onCellClick={() => {}}
+                  playerName={`${p.name} · ${p.purse}`}
+                />
+              ))}
+              {activePlayers.length === 0 && (
+                <Card className="p-6 text-sm text-muted-foreground col-span-full">
+                  No active players yet.
+                </Card>
+              )}
+            </div>
+
+            <Card className="p-3 sm:p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-semibold">Called Numbers</div>
+                <div className="text-sm">{room.called_numbers.length}/90</div>
+              </div>
+              <div className="grid grid-cols-10 gap-1 sm:gap-1.5">
+                {Array.from({ length: 90 }, (_, i) => i + 1).map((n) => {
+                  const c = called.has(n);
+                  return (
+                    <div
+                      key={n}
+                      className={`aspect-square rounded flex items-center justify-center text-[10px] sm:text-xs font-bold ${
+                        c ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground/50"
+                      }`}
+                    >
+                      {n}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          </div>
+
+          <aside className="space-y-4">
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-3">Players</div>
+              <ul className="space-y-2 text-sm">
+                {activePlayers.map((p) => (
+                  <li key={p.id} className="flex justify-between">
+                    <span>{p.name} {p.id === room.host_player_id && "👑"}</span>
+                    <span className="text-muted-foreground">{p.purse}</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-3">Prizes Claimed</div>
+              <ul className="space-y-1 text-sm">
+                <ClaimedRow label="Fastest Five" claim={room.claimed.ff} players={activePlayers} />
+                <ClaimedRow label="Top Line" claim={room.claimed.line1} players={activePlayers} />
+                <ClaimedRow label="Middle Line" claim={room.claimed.line2} players={activePlayers} />
+                <ClaimedRow label="Bottom Line" claim={room.claimed.line3} players={activePlayers} />
+                <ClaimedRow label="Housie" claim={room.claimed.housie} players={activePlayers} />
+              </ul>
+            </Card>
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-2">Spectators ({spectators.length})</div>
+              <ul className="space-y-1 text-sm">
+                {spectators.map((s) => (
+                  <li key={s.id} className={s.id === me.id ? "text-primary font-semibold" : ""}>
+                    👁 {s.name}{s.id === me.id ? " (you)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </aside>
+        </div>
+      )}
+
+      <AlertDialog open={exitOpen} onOpenChange={setExitOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave spectator mode?</AlertDialogTitle>
+            <AlertDialogDescription>You'll stop watching this game.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setExitOpen(false);
+                setTimeout(() => {
+                  if (confirm("Really exit?")) handleExit();
+                }, 100);
+              }}
+            >
+              Exit
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 function ChessRoom({
   room,
-  players,
+  players: allPlayers,
   me,
   isHost,
   onExit,
@@ -1987,6 +2197,9 @@ function ChessRoom({
 }) {
   const [busy, setBusy] = useState(false);
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const spectators = allPlayers.filter((p) => p.role === "spectator");
+  const players = allPlayers.filter((p) => p.role !== "spectator");
+  const isSpectator = me.role === "spectator";
   const roomState = Chess.normalizeRoomState(room.game_state);
   const activeSide = Chess.turnSide(roomState.fen);
   const gameStatus = Chess.gameStatus(roomState.fen);
@@ -2143,12 +2356,14 @@ function ChessRoom({
     <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-28 lg:pb-6">
       <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate flex items-center gap-2">
             {room.room_name || `Room ${room.id}`}
+            {isSpectator && <SpectatorBadge />}
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
             Chess - Code {room.id} - Host: {room.host_name}
             {isHost && " (you)"} - {players.length}/{Chess.MAX_PLAYERS}P
+            {spectators.length > 0 && ` · 👁 ${spectators.length}`}
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -2176,6 +2391,12 @@ function ChessRoom({
 
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
         <Card className="p-3 sm:p-5 flex flex-col items-center justify-center overflow-hidden">
+          <ChessStatusBanner
+            kind={gameStatus.kind}
+            isMyTurn={isMyTurn}
+            winnerName={winner?.name ?? null}
+            iAmWinner={winner?.id === me.id}
+          />
           <ChessBoard
             fen={roomState.fen}
             selectedSquare={selectedSquare}
@@ -2183,21 +2404,7 @@ function ChessRoom({
             lastMove={roomState.lastMove}
             orientation={myChessState?.side === "black" ? "black" : "white"}
             canMove={isMyTurn}
-            alert={
-              gameStatus.kind === "check"
-                ? {
-                    title: isMyTurn ? "Your king is in check" : "Opponent is in check",
-                    detail: "The king must be protected on this move.",
-                  }
-                : gameStatus.kind === "checkmate"
-                  ? {
-                      title: winner?.id === me.id ? "Checkmate. You won" : "Checkmate",
-                      detail: winner
-                        ? `${winner.name} wins the game.`
-                        : "The game has ended.",
-                    }
-                  : null
-            }
+            showCheckBadge={gameStatus.kind === "check"}
             onSquareClick={handleSquareClick}
           />
           <div className="mt-4">
@@ -2212,6 +2419,15 @@ function ChessRoom({
               </Button>
             )}
           </div>
+          <ChessGameOverModal
+            open={gameStatus.kind === "checkmate" || gameStatus.kind === "stalemate" || gameStatus.kind === "draw"}
+            kind={gameStatus.kind}
+            winnerName={winner?.name ?? null}
+            iAmWinner={winner?.id === me.id}
+            isHost={isHost}
+            onRestart={handleRestart}
+            onExit={onExit}
+          />
         </Card>
 
         <aside className="space-y-4">
@@ -2239,6 +2455,19 @@ function ChessRoom({
               ))}
             </ul>
           </Card>
+
+          {spectators.length > 0 && (
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-2">Spectators ({spectators.length})</div>
+              <ul className="space-y-1 text-sm">
+                {spectators.map((s) => (
+                  <li key={s.id} className={s.id === me.id ? "text-primary font-semibold" : "text-muted-foreground"}>
+                    👁 {s.name}{s.id === me.id ? " (you)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           <Card className="p-4">
             <div className="text-sm font-semibold mb-3">Move History</div>
@@ -2287,7 +2516,7 @@ function ChessBoard({
   lastMove,
   orientation,
   canMove,
-  alert,
+  showCheckBadge,
   onSquareClick,
 }: {
   fen: string;
@@ -2296,7 +2525,7 @@ function ChessBoard({
   lastMove: { from: Square; to: Square; san: string } | null;
   orientation: "white" | "black";
   canMove: boolean;
-  alert: { title: string; detail: string } | null;
+  showCheckBadge: boolean;
   onSquareClick: (square: Square) => void;
 }) {
   const [animatingMove, setAnimatingMove] = useState(lastMove);
@@ -2369,15 +2598,115 @@ function ChessBoard({
               ranks={ranks}
             />
           ) : null}
-          {alert ? (
-            <div className="chess-alert" role="status" aria-live="polite">
-              <div className="chess-alert-title">{alert.title}</div>
-              <div className="chess-alert-detail">{alert.detail}</div>
+          {showCheckBadge ? (
+            <div className="chess-check-badge" role="status" aria-live="polite">
+              Check
             </div>
           ) : null}
         </div>
       </div>
     </div>
+  );
+}
+
+function ChessStatusBanner({
+  kind,
+  isMyTurn,
+  winnerName,
+  iAmWinner,
+}: {
+  kind: "playing" | "check" | "checkmate" | "stalemate" | "draw";
+  isMyTurn: boolean;
+  winnerName: string | null;
+  iAmWinner: boolean;
+}) {
+  const [showCheck, setShowCheck] = useState(false);
+  useEffect(() => {
+    if (kind !== "check") {
+      setShowCheck(false);
+      return;
+    }
+    setShowCheck(true);
+    const t = window.setTimeout(() => setShowCheck(false), 2500);
+    return () => window.clearTimeout(t);
+  }, [kind, isMyTurn]);
+
+  if (kind === "checkmate") {
+    return (
+      <div className="w-full mb-3 rounded-md border border-destructive/40 bg-destructive/15 px-3 py-2 text-center text-sm font-semibold text-destructive">
+        Checkmate — {iAmWinner ? "You won!" : winnerName ? `${winnerName} wins` : "Game over"}
+      </div>
+    );
+  }
+  if (kind === "stalemate" || kind === "draw") {
+    return (
+      <div className="w-full mb-3 rounded-md border border-border bg-muted px-3 py-2 text-center text-sm font-semibold">
+        {kind === "stalemate" ? "Stalemate" : "Draw"}
+      </div>
+    );
+  }
+  if (kind === "check" && showCheck) {
+    return (
+      <div className="w-full mb-3 rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-center text-sm font-semibold text-amber-600 dark:text-amber-400">
+        {isMyTurn ? "Your king is in check" : "Opponent is in check"}
+      </div>
+    );
+  }
+  return null;
+}
+
+function ChessGameOverModal({
+  open,
+  kind,
+  winnerName,
+  iAmWinner,
+  isHost,
+  onRestart,
+  onExit,
+}: {
+  open: boolean;
+  kind: "playing" | "check" | "checkmate" | "stalemate" | "draw";
+  winnerName: string | null;
+  iAmWinner: boolean;
+  isHost: boolean;
+  onRestart: () => void;
+  onExit: () => void;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    if (!open) setDismissed(false);
+  }, [open]);
+  const isOpen = open && !dismissed;
+  const title =
+    kind === "checkmate"
+      ? iAmWinner
+        ? "Checkmate — You won!"
+        : `Checkmate — ${winnerName ?? "Opponent"} wins`
+      : kind === "stalemate"
+        ? "Stalemate"
+        : "Draw";
+  return (
+    <AlertDialog open={isOpen} onOpenChange={(v) => !v && setDismissed(true)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {kind === "checkmate"
+              ? "The game has ended. You can close this to keep viewing the final board."
+              : "The game has ended without a winner."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setDismissed(true)}>Close</AlertDialogCancel>
+          {isHost ? (
+            <AlertDialogAction onClick={() => { setDismissed(true); onRestart(); }}>
+              New Game
+            </AlertDialogAction>
+          ) : null}
+          <AlertDialogAction onClick={onExit}>Exit Room</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -2431,4 +2760,517 @@ function squarePosition(square: Square, files: readonly string[], ranks: readonl
     x: col * 100,
     y: row * 100,
   };
+}
+
+// ============================================================================
+// Carrom
+// ============================================================================
+
+function CarromRoom({
+  room,
+  players: allPlayers,
+  me,
+  isHost,
+  onExit,
+}: {
+  room: RoomRow;
+  players: PlayerRow[];
+  me: PlayerRow;
+  isHost: boolean;
+  onExit: () => void;
+}) {
+  const spectators = allPlayers.filter((p) => p.role === "spectator");
+  const players = allPlayers.filter((p) => p.role !== "spectator");
+  const isSpectator = me.role === "spectator";
+  const state = Carrom.normalizeRoomState(room.game_state) ?? Carrom.createInitialRoomState(players.map((p) => p.id));
+  const [busy, setBusy] = useState(false);
+  const [animCoins, setAnimCoins] = useState<Carrom.Coin[] | null>(null);
+  const [aim, setAim] = useState<{ x: number; y: number; angle: number; power: number } | null>(null);
+  const [strikerPos, setStrikerPos] = useState<number>(Carrom.CENTER);
+  const lastSeenSeq = useRef(state.shotSeq);
+  const animRef = useRef<number | null>(null);
+
+  const seatIndex = state.turnOrder.indexOf(me.id);
+  const mySeat: Carrom.Seat | null = seatIndex >= 0 ? Carrom.seatForIndex(seatIndex) : null;
+  const myTeam: Carrom.Team | null = state.teams[me.id] ?? null;
+  const currentPlayerId = state.turnOrder[state.turnIndex];
+  const currentPlayer = players.find((p) => p.id === currentPlayerId);
+  const isMyTurn = !isSpectator && room.status === "playing" && currentPlayerId === me.id && state.phase === "aiming";
+
+  // Replay shot animation when shotSeq changes.
+  useEffect(() => {
+    if (state.shotSeq === lastSeenSeq.current) return;
+    if (!state.lastShot) {
+      lastSeenSeq.current = state.shotSeq;
+      return;
+    }
+    const { preCoins, angle, power, strikerX, strikerY } = state.lastShot;
+    const result = Carrom.simulateShot(preCoins, strikerX, strikerY, angle, power);
+    const frames = result.frames;
+    let i = 0;
+    if (animRef.current) cancelAnimationFrame(animRef.current);
+    const playFrame = () => {
+      if (i >= frames.length) {
+        setAnimCoins(null);
+        lastSeenSeq.current = state.shotSeq;
+        return;
+      }
+      setAnimCoins(frames[i]);
+      i++;
+      animRef.current = requestAnimationFrame(playFrame);
+    };
+    playFrame();
+    return () => {
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+    };
+  }, [state.shotSeq]);
+
+  // Compute striker baseline default position whenever my turn becomes active.
+  useEffect(() => {
+    if (!isMyTurn || !mySeat) return;
+    const b = Carrom.strikerBaseline(mySeat);
+    if (b.axis === "x") setStrikerPos(Carrom.CENTER);
+    else setStrikerPos(Carrom.CENTER);
+  }, [isMyTurn, mySeat]);
+
+  async function handleStart() {
+    if (!isHost) return;
+    if (players.length < Carrom.MIN_PLAYERS) return toast.error("Need at least 2 players");
+    if (players.length > Carrom.MAX_PLAYERS) return toast.error("Room is full");
+    setBusy(true);
+    try {
+      const fresh = Carrom.createInitialRoomState(players.map((p) => p.id));
+      const { error } = await supabase
+        .from("rooms")
+        .update({ status: "playing", game_state: fresh as never })
+        .eq("id", room.id);
+      if (error) throw error;
+      toast.success("Carrom started");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to start");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRestart() {
+    if (!isHost) return;
+    setBusy(true);
+    try {
+      const fresh = Carrom.createInitialRoomState(players.map((p) => p.id));
+      const { error } = await supabase
+        .from("rooms")
+        .update({ status: "waiting", game_state: fresh as never })
+        .eq("id", room.id);
+      if (error) throw error;
+      toast.success("Game reset");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to restart");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function commitShot(angle: number, power: number, sx: number, sy: number) {
+    if (!isMyTurn || !mySeat) return;
+    setBusy(true);
+    try {
+      const preCoins = state.coins.map((c) => ({ ...c }));
+      const result = Carrom.simulateShot(preCoins, sx, sy, angle, power);
+      const applied = Carrom.applyShot(
+        { ...state, lastShot: { playerId: me.id, angle, power, strikerX: sx, strikerY: sy, seq: state.shotSeq, preCoins } },
+        me.id,
+        result.pocketed,
+        result.finalCoins,
+      );
+      applied.nextState.lastShot = {
+        playerId: me.id,
+        angle,
+        power,
+        strikerX: sx,
+        strikerY: sy,
+        seq: applied.nextState.shotSeq,
+        preCoins,
+      };
+      const nextStatus = applied.nextState.winner ? "ended" : "playing";
+      const { error } = await supabase
+        .from("rooms")
+        .update({ game_state: applied.nextState as never, status: nextStatus })
+        .eq("id", room.id);
+      if (error) throw error;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to shoot");
+    } finally {
+      setBusy(false);
+      setAim(null);
+    }
+  }
+
+  const displayCoins = animCoins ?? state.coins;
+  const showStriker = isMyTurn && !animCoins;
+
+  return (
+    <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-6">
+      <header className="flex items-start justify-between mb-4 gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-primary truncate flex items-center gap-2">
+            {room.room_name || `Room ${room.id}`}
+            {isSpectator && <SpectatorBadge />}
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Carrom · Code {room.id} · Host: {room.host_name}
+            {isHost && " (you)"} · {players.length}/{Carrom.MAX_PLAYERS}P
+            {spectators.length > 0 && ` · 👁 ${spectators.length}`}
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(room.id); toast.success("Code copied"); }}>
+            Copy
+          </Button>
+          <Button variant="destructive" size="sm" onClick={() => { if (confirm("Exit this room?")) onExit(); }}>
+            Exit
+          </Button>
+        </div>
+      </header>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+        <Card className="p-3 sm:p-4">
+          <CarromBoard
+            coins={displayCoins}
+            mySeat={isMyTurn ? mySeat : null}
+            strikerPos={strikerPos}
+            setStrikerPos={setStrikerPos}
+            aim={aim}
+            setAim={setAim}
+            onShoot={(angle, power, sx, sy) => void commitShot(angle, power, sx, sy)}
+            disabled={busy || !isMyTurn}
+          />
+          <div className="mt-3 text-center">
+            {room.status === "waiting" && isHost && (
+              <Button onClick={handleStart} disabled={busy || players.length < Carrom.MIN_PLAYERS}>
+                Start Game ({players.length}/{Carrom.MAX_PLAYERS})
+              </Button>
+            )}
+            {room.status === "waiting" && !isHost && (
+              <p className="text-sm text-muted-foreground">Waiting for host to start…</p>
+            )}
+            {state.winner && (
+              <div className="mt-2 rounded-md border border-primary/40 bg-primary/10 p-3 text-lg font-bold text-primary">
+                🏆 {state.winner === "white" ? "White" : "Black"} team wins!
+              </div>
+            )}
+            {isHost && room.status !== "waiting" && (
+              <Button onClick={handleRestart} variant="secondary" size="sm" className="mt-2">
+                Restart Game
+              </Button>
+            )}
+          </div>
+        </Card>
+
+        <aside className="space-y-4">
+          <Card className="p-4">
+            <div className="text-sm uppercase tracking-wide text-muted-foreground">Turn</div>
+            <div className="text-lg font-bold text-primary">
+              {room.status !== "playing"
+                ? "—"
+                : currentPlayer
+                  ? `${currentPlayer.name}${currentPlayer.id === me.id ? " (you)" : ""}`
+                  : "—"}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {isMyTurn ? "Drag the striker to aim and release to shoot" : busy ? "…" : "Watching"}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+              <div className="rounded bg-amber-100/10 p-2">
+                <div className="text-xs text-muted-foreground">White</div>
+                <div className="text-2xl font-bold">{state.scores.white}</div>
+              </div>
+              <div className="rounded bg-stone-900/40 p-2">
+                <div className="text-xs text-muted-foreground">Black</div>
+                <div className="text-2xl font-bold">{state.scores.black}</div>
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-muted-foreground">
+              Queen: {state.queenPocketedBy
+                ? `${state.queenPocketedBy} (${state.queenCovered ? "covered" : "uncovered"})`
+                : "on board"}
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="text-sm font-semibold mb-2">Players</div>
+            <ul className="space-y-1 text-sm">
+              {players.map((p, i) => {
+                const team = state.teams[p.id];
+                const seat = Carrom.seatForIndex(i);
+                return (
+                  <li key={p.id} className={`flex justify-between rounded px-2 py-1 ${p.id === currentPlayerId ? "bg-primary/10" : ""}`}>
+                    <span className={p.id === me.id ? "text-primary font-semibold" : ""}>
+                      {p.name}{p.id === room.host_player_id ? " 👑" : ""}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{seat} · {team ?? "—"}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+
+          <Card className="p-4">
+            <div className="text-sm font-semibold mb-2">Events</div>
+            <ul className="space-y-1 text-xs text-muted-foreground max-h-48 overflow-y-auto">
+              {state.eventLog.slice().reverse().map((e) => (
+                <li key={e.id}>{e.message}</li>
+              ))}
+              {state.eventLog.length === 0 && <li>No events yet.</li>}
+            </ul>
+          </Card>
+
+          {spectators.length > 0 && (
+            <Card className="p-4">
+              <div className="text-sm font-semibold mb-2">Spectators ({spectators.length})</div>
+              <ul className="space-y-1 text-sm">
+                {spectators.map((s) => (
+                  <li key={s.id} className={s.id === me.id ? "text-primary font-semibold" : "text-muted-foreground"}>
+                    👁 {s.name}{s.id === me.id ? " (you)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function CarromBoard({
+  coins,
+  mySeat,
+  strikerPos,
+  setStrikerPos,
+  aim,
+  setAim,
+  onShoot,
+  disabled,
+}: {
+  coins: Carrom.Coin[];
+  mySeat: Carrom.Seat | null;
+  strikerPos: number;
+  setStrikerPos: (n: number) => void;
+  aim: { x: number; y: number; angle: number; power: number } | null;
+  setAim: (a: { x: number; y: number; angle: number; power: number } | null) => void;
+  onShoot: (angle: number, power: number, sx: number, sy: number) => void;
+  disabled: boolean;
+}) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const dragging = useRef<"slide" | "aim" | null>(null);
+
+  const baseline = mySeat ? Carrom.strikerBaseline(mySeat) : null;
+  const strikerCoord =
+    baseline?.axis === "x"
+      ? { x: strikerPos, y: baseline.y! }
+      : baseline
+        ? { x: baseline.x!, y: strikerPos }
+        : null;
+
+  function getSvgPoint(evt: React.PointerEvent) {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const pt = svg.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    const transformed = pt.matrixTransform(ctm.inverse());
+    return { x: transformed.x, y: transformed.y };
+  }
+
+  function handleStrikerPointerDown(e: React.PointerEvent) {
+    if (disabled || !baseline || !strikerCoord) return;
+    e.preventDefault();
+    (e.target as Element).setPointerCapture(e.pointerId);
+    dragging.current = "aim";
+    const pt = getSvgPoint(e);
+    const dx = pt.x - strikerCoord.x;
+    const dy = pt.y - strikerCoord.y;
+    setAim({ x: pt.x, y: pt.y, angle: Math.atan2(dy, dx), power: 0 });
+  }
+
+  function handleSlidePointerDown(e: React.PointerEvent) {
+    if (disabled || !baseline) return;
+    e.preventDefault();
+    (e.target as Element).setPointerCapture(e.pointerId);
+    dragging.current = "slide";
+    const pt = getSvgPoint(e);
+    const v = baseline.axis === "x" ? pt.x : pt.y;
+    setStrikerPos(Math.max(baseline.min, Math.min(baseline.max, v)));
+  }
+
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!dragging.current) return;
+    const pt = getSvgPoint(e);
+    if (dragging.current === "slide" && baseline) {
+      const v = baseline.axis === "x" ? pt.x : pt.y;
+      setStrikerPos(Math.max(baseline.min, Math.min(baseline.max, v)));
+    } else if (dragging.current === "aim" && strikerCoord) {
+      // Drag BEHIND striker to set direction (shoot opposite the drag).
+      const dx = strikerCoord.x - pt.x;
+      const dy = strikerCoord.y - pt.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx);
+      const power = Math.min(Carrom.MAX_POWER, dist / 12);
+      setAim({ x: pt.x, y: pt.y, angle, power });
+    }
+  }
+
+  function handlePointerUp(e: React.PointerEvent) {
+    const was = dragging.current;
+    dragging.current = null;
+    try {
+      (e.target as Element).releasePointerCapture(e.pointerId);
+    } catch {/* */}
+    if (was === "aim" && aim && strikerCoord && aim.power > 1) {
+      onShoot(aim.angle, aim.power, strikerCoord.x, strikerCoord.y);
+    } else {
+      setAim(null);
+    }
+  }
+
+  return (
+    <svg
+      ref={svgRef}
+      viewBox={`0 0 ${Carrom.BOARD} ${Carrom.BOARD}`}
+      className="w-full h-auto max-w-[700px] mx-auto touch-none select-none"
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+    >
+      <defs>
+        <radialGradient id="carrom-wood" cx="50%" cy="50%" r="65%">
+          <stop offset="0%" stopColor="#e8c993" />
+          <stop offset="60%" stopColor="#c68b4f" />
+          <stop offset="100%" stopColor="#7a4422" />
+        </radialGradient>
+      </defs>
+      {/* Outer wooden frame */}
+      <rect x="0" y="0" width={Carrom.BOARD} height={Carrom.BOARD} fill="#3a200f" />
+      <rect x="20" y="20" width={Carrom.BOARD - 40} height={Carrom.BOARD - 40} fill="url(#carrom-wood)" rx="6" />
+      {/* Play area border */}
+      <rect
+        x={Carrom.PLAY_MIN}
+        y={Carrom.PLAY_MIN}
+        width={Carrom.PLAY_MAX - Carrom.PLAY_MIN}
+        height={Carrom.PLAY_MAX - Carrom.PLAY_MIN}
+        fill="none"
+        stroke="#5a2e10"
+        strokeWidth="3"
+      />
+      {/* Baselines for each seat */}
+      {(["bottom", "top", "left", "right"] as Carrom.Seat[]).map((s) => {
+        const b = Carrom.strikerBaseline(s);
+        const isMy = s === mySeat;
+        const color = isMy ? "#ffd54a" : "#8a4a20";
+        const w = isMy ? 3 : 1.5;
+        if (b.axis === "x") {
+          return <line key={s} x1={b.min} y1={b.y!} x2={b.max} y2={b.y!} stroke={color} strokeWidth={w} strokeDasharray="6 4" />;
+        }
+        return <line key={s} x1={b.x!} y1={b.min} x2={b.x!} y2={b.max} stroke={color} strokeWidth={w} strokeDasharray="6 4" />;
+      })}
+      {/* Center circle */}
+      <circle cx={Carrom.CENTER} cy={Carrom.CENTER} r={Carrom.CENTER_RING_RADIUS} fill="none" stroke="#5a2e10" strokeWidth="2" />
+      <circle cx={Carrom.CENTER} cy={Carrom.CENTER} r="14" fill="none" stroke="#7a3a18" strokeWidth="2" />
+      {/* Pockets */}
+      {Carrom.POCKETS.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r={Carrom.POCKET_RADIUS + 4} fill="#1a0a04" />
+          <circle cx={p.x} cy={p.y} r={Carrom.POCKET_RADIUS} fill="#000" />
+        </g>
+      ))}
+      {/* Coins */}
+      {coins.filter((c) => !c.pocketed).map((c) => (
+        <CoinShape key={c.id} coin={c} />
+      ))}
+      {/* Striker (only for active player, not animating) */}
+      {strikerCoord && (
+        <g
+          onPointerDown={handleStrikerPointerDown}
+          style={{ cursor: disabled ? "default" : "grab" }}
+        >
+          {/* Slide handle on baseline */}
+          {baseline && baseline.axis === "x" && (
+            <rect
+              x={baseline.min}
+              y={baseline.y! - 14}
+              width={baseline.max - baseline.min}
+              height={28}
+              fill="transparent"
+              onPointerDown={handleSlidePointerDown}
+            />
+          )}
+          {baseline && baseline.axis === "y" && (
+            <rect
+              x={baseline.x! - 14}
+              y={baseline.min}
+              width={28}
+              height={baseline.max - baseline.min}
+              fill="transparent"
+              onPointerDown={handleSlidePointerDown}
+            />
+          )}
+          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS} fill="#f8f4e8" stroke="#5a2e10" strokeWidth="2" />
+          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS - 6} fill="none" stroke="#c19a5b" strokeWidth="1.5" />
+        </g>
+      )}
+      {/* Aim line */}
+      {aim && strikerCoord && (
+        <>
+          <line
+            x1={strikerCoord.x}
+            y1={strikerCoord.y}
+            x2={strikerCoord.x + Math.cos(aim.angle) * 200}
+            y2={strikerCoord.y + Math.sin(aim.angle) * 200}
+            stroke="#fff"
+            strokeWidth="2"
+            strokeDasharray="6 4"
+            opacity="0.85"
+          />
+          {/* Power bar */}
+          <rect x={strikerCoord.x - 30} y={strikerCoord.y + 30} width="60" height="8" fill="#000" opacity="0.4" />
+          <rect
+            x={strikerCoord.x - 30}
+            y={strikerCoord.y + 30}
+            width={60 * (aim.power / Carrom.MAX_POWER)}
+            height="8"
+            fill="#ffd54a"
+          />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function CoinShape({ coin }: { coin: Carrom.Coin }) {
+  if (coin.type === "queen") {
+    return (
+      <g>
+        <circle cx={coin.x} cy={coin.y} r={coin.radius} fill="#c0392b" stroke="#7b1f12" strokeWidth="1.5" />
+        <circle cx={coin.x} cy={coin.y} r={coin.radius - 5} fill="none" stroke="#fff" strokeWidth="1" opacity="0.5" />
+      </g>
+    );
+  }
+  if (coin.type === "white") {
+    return (
+      <g>
+        <circle cx={coin.x} cy={coin.y} r={coin.radius} fill="#f4ecd6" stroke="#7a5a30" strokeWidth="1.2" />
+        <circle cx={coin.x} cy={coin.y} r={coin.radius - 5} fill="none" stroke="#bda060" strokeWidth="0.8" />
+      </g>
+    );
+  }
+  // black
+  return (
+    <g>
+      <circle cx={coin.x} cy={coin.y} r={coin.radius} fill="#2c2118" stroke="#0a0604" strokeWidth="1.2" />
+      <circle cx={coin.x} cy={coin.y} r={coin.radius - 5} fill="none" stroke="#5a4628" strokeWidth="0.8" />
+    </g>
+  );
 }
