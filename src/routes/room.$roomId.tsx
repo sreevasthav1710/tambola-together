@@ -666,7 +666,7 @@ function RoomPage() {
             <Card className="p-4">
               <div className="text-sm font-semibold mb-3">Players</div>
               <ul className="space-y-2">
-                {players.map((p) => (
+                {activePlayers.map((p) => (
                   <li key={p.id} className="flex justify-between text-sm">
                     <span className={p.id === me.id ? "text-primary font-semibold" : ""}>
                       {p.name} {p.id === room.host_player_id && "👑"}
@@ -679,13 +679,25 @@ function RoomPage() {
             <Card className="p-4">
               <div className="text-sm font-semibold mb-3">Prizes Claimed</div>
               <ul className="space-y-1 text-sm">
-                <ClaimedRow label="Fastest Five" claim={room.claimed.ff} players={players} />
-                <ClaimedRow label="Top Line" claim={room.claimed.line1} players={players} />
-                <ClaimedRow label="Middle Line" claim={room.claimed.line2} players={players} />
-                <ClaimedRow label="Bottom Line" claim={room.claimed.line3} players={players} />
-                <ClaimedRow label="Housie" claim={room.claimed.housie} players={players} />
+                <ClaimedRow label="Fastest Five" claim={room.claimed.ff} players={activePlayers} />
+                <ClaimedRow label="Top Line" claim={room.claimed.line1} players={activePlayers} />
+                <ClaimedRow label="Middle Line" claim={room.claimed.line2} players={activePlayers} />
+                <ClaimedRow label="Bottom Line" claim={room.claimed.line3} players={activePlayers} />
+                <ClaimedRow label="Housie" claim={room.claimed.housie} players={activePlayers} />
               </ul>
             </Card>
+            {spectators.length > 0 && (
+              <Card className="p-4">
+                <div className="text-sm font-semibold mb-2">Spectators ({spectators.length})</div>
+                <ul className="space-y-1 text-sm">
+                  {spectators.map((s) => (
+                    <li key={s.id} className={s.id === me.id ? "text-primary font-semibold" : "text-muted-foreground"}>
+                      {"\u{1F441} "}{s.name}{s.id === me.id ? " (you)" : ""}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
           </aside>
         </div>
       )}
