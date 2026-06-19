@@ -33,8 +33,9 @@ import {
   MAX_PLAYERS,
 } from "@/lib/snakeLadder";
 import * as Chess from "@/lib/chess";
+import * as Carrom from "@/lib/carrom";
 
-type GameType = "tambola" | "snake-ladder" | "chess";
+type GameType = "tambola" | "snake-ladder" | "chess" | "carrom";
 
 const GAME_META: Record<GameType, { title: string; description: string; icon: typeof Ticket }> = {
   tambola: {
@@ -51,6 +52,11 @@ const GAME_META: Record<GameType, { title: string; description: string; icon: ty
     title: "Chess",
     description: "Two-player chess with realtime play and move history.",
     icon: UserRound,
+  },
+  carrom: {
+    title: "Carrom",
+    description: "2-4 player carrom with realistic physics, queen cover rule, and team play.",
+    icon: Circle,
   },
 };
 
