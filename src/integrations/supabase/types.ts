@@ -138,6 +138,13 @@ export type Database = {
         }
         Returns: Json
       }
+      draw_tambola_number: {
+        Args: {
+          p_host_player_id: string
+          p_room_id: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never

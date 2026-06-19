@@ -285,25 +285,32 @@ function RoomPage() {
   );
 
   const handleNextNumber = useCallback(async () => {
-    if (!room || !isHost) return;
+    if (!room || !isHost || !identity) return;
     if (room.status !== "waiting" && room.status !== "playing") return;
-    const all = Array.from({ length: 90 }, (_, i) => i + 1);
-    const remaining = all.filter((n) => !called.has(n));
-    if (remaining.length === 0) return toast.error("All numbers called");
-    const pick = remaining[Math.floor(Math.random() * remaining.length)];
-    const newCalled = [...room.called_numbers, pick];
-    const newStatus = room.status === "waiting" ? "playing" : room.status;
-    // Optimistic local update so the host gets instant feedback.
-    setRoom({ ...room, called_numbers: newCalled, status: newStatus });
-    const { error } = await supabase
-      .from("rooms")
-      .update({ called_numbers: newCalled, status: newStatus })
-      .eq("id", room.id);
+    const { data, error } = await supabase.rpc("draw_tambola_number", {
+      p_room_id: room.id,
+      p_host_player_id: identity.playerId,
+    });
     if (error) {
       toast.error(error.message);
-      setRoom(room); // rollback
+      return;
     }
-  }, [room, isHost, called]);
+    const result = data as {
+      ok: boolean;
+      reason?: string;
+      called_numbers?: number[];
+      status?: string;
+    } | null;
+    if (!result?.ok || !Array.isArray(result.called_numbers)) {
+      toast.error(result?.reason ?? "Could not call number");
+      return;
+    }
+    setRoom({
+      ...room,
+      called_numbers: result.called_numbers,
+      status: result.status ?? room.status,
+    });
+  }, [room, isHost, identity]);
 
   const handleRoomStatus = useCallback(
     async (status: "waiting" | "stopped") => {
@@ -569,7 +576,28 @@ function RoomPage() {
                 join and play.
               </Card>
             )}
-            {/* Last number + controls — hidden on mobile (replaced by sticky bottom bar) */}
+            <Card className="p-3 md:hidden">
+              <div className="flex items-center gap-3">
+                <div className="text-center shrink-0">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Last</div>
+                  <div className="number-ball number-ball-called w-16 h-16 text-2xl">{lastNumber ?? "—"}</div>
+                </div>
+                {isHost ? (
+                  <Button
+                    onClick={handleNextNumber}
+                    className="flex-1 h-14 text-base font-bold"
+                    disabled={!isActiveRoom}
+                  >
+                    Next Number
+                  </Button>
+                ) : (
+                  <div className="flex-1 text-xs text-center text-muted-foreground">
+                    {room.status === "stopped" ? "Room stopped" : "Waiting for host…"}
+                  </div>
+                )}
+              </div>
+            </Card>
+            {/* Last number + controls — desktop */}
             <Card className="p-4 md:p-5 hidden md:flex flex-col sm:flex-row items-center gap-5">
               <div className="flex items-center gap-4">
                 <div className="text-center">
@@ -659,28 +687,6 @@ function RoomPage() {
               </ul>
             </Card>
           </aside>
-        </div>
-      )}
-
-      {/* Mobile sticky bottom bar: last number + next-number control */}
-      {room.status !== "ended" && (
-        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 border-t border-border bg-card/95 backdrop-blur px-3 py-2 flex items-center gap-3 shadow-[0_-4px_20px_rgba(0,0,0,0.4)]">
-          <div className="number-ball number-ball-called w-14 h-14 text-2xl shrink-0">
-            {lastNumber ?? "—"}
-          </div>
-          {isHost ? (
-            <Button
-              onClick={handleNextNumber}
-              className="flex-1 h-14 text-base font-bold"
-              disabled={!isActiveRoom}
-            >
-              🎲 Next Number
-            </Button>
-          ) : (
-            <div className="flex-1 text-xs text-center text-muted-foreground">
-              {room.status === "stopped" ? "Room stopped" : "Waiting for host…"}
-            </div>
-          )}
         </div>
       )}
 
@@ -1040,7 +1046,7 @@ function SnakeLadderRoom({
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-        <Card className="p-3 sm:p-4">
+        <Card className="overflow-hidden border-[#6b1129] bg-[radial-gradient(circle_at_50%_12%,#b8334a_0%,#7f1732_48%,#3c0a1d_100%)] p-3 sm:p-4 shadow-2xl">
           <SnakeLadderBoard players={playerStates} currentPlayerId={me.id} />
         </Card>
 
@@ -3136,25 +3142,48 @@ function CarromBoard({
     }
   }
 
+  const strengthPct = aim ? Math.round((aim.power / Carrom.MAX_POWER) * 100) : 0;
+
   return (
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${Carrom.BOARD} ${Carrom.BOARD}`}
-      className="w-full h-auto max-w-[700px] mx-auto touch-none select-none"
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-    >
+    <div className="mx-auto w-full max-w-[700px]">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${Carrom.BOARD} ${Carrom.BOARD}`}
+        className="w-full h-auto touch-none select-none drop-shadow-[0_18px_24px_rgba(0,0,0,0.55)]"
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
       <defs>
-        <radialGradient id="carrom-wood" cx="50%" cy="50%" r="65%">
-          <stop offset="0%" stopColor="#e8c993" />
-          <stop offset="60%" stopColor="#c68b4f" />
-          <stop offset="100%" stopColor="#7a4422" />
+        <radialGradient id="carrom-wood" cx="48%" cy="42%" r="72%">
+          <stop offset="0%" stopColor="#eacb96" />
+          <stop offset="58%" stopColor="#c18048" />
+          <stop offset="100%" stopColor="#7a351d" />
         </radialGradient>
+        <linearGradient id="carrom-frame" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#f2bb36" />
+          <stop offset="12%" stopColor="#3a1609" />
+          <stop offset="88%" stopColor="#140704" />
+          <stop offset="100%" stopColor="#ffc642" />
+        </linearGradient>
+        <filter id="carrom-soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="8" stdDeviation="7" floodColor="#1b0504" floodOpacity="0.55" />
+        </filter>
       </defs>
       {/* Outer wooden frame */}
-      <rect x="0" y="0" width={Carrom.BOARD} height={Carrom.BOARD} fill="#3a200f" />
-      <rect x="20" y="20" width={Carrom.BOARD - 40} height={Carrom.BOARD - 40} fill="url(#carrom-wood)" rx="6" />
+      <rect x="0" y="0" width={Carrom.BOARD} height={Carrom.BOARD} rx="32" fill="url(#carrom-frame)" />
+      <rect x="18" y="18" width={Carrom.BOARD - 36} height={Carrom.BOARD - 36} rx="24" fill="#210904" />
+      <rect x="42" y="42" width={Carrom.BOARD - 84} height={Carrom.BOARD - 84} fill="url(#carrom-wood)" rx="12" filter="url(#carrom-soft-shadow)" />
+      {Array.from({ length: 14 }, (_, i) => (
+        <path
+          key={i}
+          d={`M ${90 + i * 45} 55 C ${140 + i * 24} 210, ${40 + i * 36} 510, ${130 + i * 42} 745`}
+          fill="none"
+          stroke="#7b3d20"
+          strokeWidth="1.2"
+          opacity="0.18"
+        />
+      ))}
       {/* Play area border */}
       <rect
         x={Carrom.PLAY_MIN}
@@ -3162,28 +3191,52 @@ function CarromBoard({
         width={Carrom.PLAY_MAX - Carrom.PLAY_MIN}
         height={Carrom.PLAY_MAX - Carrom.PLAY_MIN}
         fill="none"
-        stroke="#5a2e10"
-        strokeWidth="3"
+        stroke="#6a2d16"
+        strokeWidth="4"
+      />
+      <rect
+        x={Carrom.PLAY_MIN + 18}
+        y={Carrom.PLAY_MIN + 18}
+        width={Carrom.PLAY_MAX - Carrom.PLAY_MIN - 36}
+        height={Carrom.PLAY_MAX - Carrom.PLAY_MIN - 36}
+        fill="none"
+        stroke="#8f4321"
+        strokeWidth="1.5"
+        opacity="0.7"
       />
       {/* Baselines for each seat */}
       {(["bottom", "top", "left", "right"] as Carrom.Seat[]).map((s) => {
         const b = Carrom.strikerBaseline(s);
         const isMy = s === mySeat;
-        const color = isMy ? "#ffd54a" : "#8a4a20";
-        const w = isMy ? 3 : 1.5;
+        const color = isMy ? "#ffe366" : "#8a3219";
+        const w = isMy ? 5 : 2.4;
         if (b.axis === "x") {
-          return <line key={s} x1={b.min} y1={b.y!} x2={b.max} y2={b.y!} stroke={color} strokeWidth={w} strokeDasharray="6 4" />;
+          return (
+            <g key={s}>
+              <line x1={b.min} y1={b.y!} x2={b.max} y2={b.y!} stroke={color} strokeWidth={w} strokeLinecap="round" />
+              <circle cx={b.min} cy={b.y!} r="21" fill="none" stroke="#8a3219" strokeWidth="2" />
+              <circle cx={b.max} cy={b.y!} r="21" fill="none" stroke="#8a3219" strokeWidth="2" />
+            </g>
+          );
         }
-        return <line key={s} x1={b.x!} y1={b.min} x2={b.x!} y2={b.max} stroke={color} strokeWidth={w} strokeDasharray="6 4" />;
+        return (
+          <g key={s}>
+            <line x1={b.x!} y1={b.min} x2={b.x!} y2={b.max} stroke={color} strokeWidth={w} strokeLinecap="round" />
+            <circle cx={b.x!} cy={b.min} r="21" fill="none" stroke="#8a3219" strokeWidth="2" />
+            <circle cx={b.x!} cy={b.max} r="21" fill="none" stroke="#8a3219" strokeWidth="2" />
+          </g>
+        );
       })}
       {/* Center circle */}
-      <circle cx={Carrom.CENTER} cy={Carrom.CENTER} r={Carrom.CENTER_RING_RADIUS} fill="none" stroke="#5a2e10" strokeWidth="2" />
-      <circle cx={Carrom.CENTER} cy={Carrom.CENTER} r="14" fill="none" stroke="#7a3a18" strokeWidth="2" />
+      <circle cx={Carrom.CENTER} cy={Carrom.CENTER} r={Carrom.CENTER_RING_RADIUS + 18} fill="none" stroke="#8a3219" strokeWidth="1.5" opacity="0.65" />
+      <circle cx={Carrom.CENTER} cy={Carrom.CENTER} r={Carrom.CENTER_RING_RADIUS} fill="none" stroke="#6a2d16" strokeWidth="2.5" />
+      <circle cx={Carrom.CENTER} cy={Carrom.CENTER} r="17" fill="#b33b25" stroke="#fff0d0" strokeWidth="2" />
       {/* Pockets */}
       {Carrom.POCKETS.map((p, i) => (
         <g key={i}>
-          <circle cx={p.x} cy={p.y} r={Carrom.POCKET_RADIUS + 4} fill="#1a0a04" />
-          <circle cx={p.x} cy={p.y} r={Carrom.POCKET_RADIUS} fill="#000" />
+          <circle cx={p.x} cy={p.y} r={Carrom.POCKET_RADIUS + 12} fill="#321008" />
+          <circle cx={p.x} cy={p.y} r={Carrom.POCKET_RADIUS + 4} fill="#100402" />
+          <circle cx={p.x} cy={p.y} r={Carrom.POCKET_RADIUS - 3} fill="#020100" />
         </g>
       ))}
       {/* Coins */}
@@ -3217,8 +3270,9 @@ function CarromBoard({
               onPointerDown={handleSlidePointerDown}
             />
           )}
-          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS} fill="#f8f4e8" stroke="#5a2e10" strokeWidth="2" />
-          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS - 6} fill="none" stroke="#c19a5b" strokeWidth="1.5" />
+          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS + 4} fill="#d83a4d" opacity="0.32" />
+          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS} fill="#f8f4e8" stroke="#5a2e10" strokeWidth="2.5" />
+          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS - 6} fill="none" stroke="#d83a4d" strokeWidth="2" />
         </g>
       )}
       {/* Aim line */}
@@ -3229,23 +3283,27 @@ function CarromBoard({
             y1={strikerCoord.y}
             x2={strikerCoord.x + Math.cos(aim.angle) * 200}
             y2={strikerCoord.y + Math.sin(aim.angle) * 200}
-            stroke="#fff"
-            strokeWidth="2"
-            strokeDasharray="6 4"
+            stroke="#fff5d6"
+            strokeWidth="3"
+            strokeDasharray="7 5"
             opacity="0.85"
-          />
-          {/* Power bar */}
-          <rect x={strikerCoord.x - 30} y={strikerCoord.y + 30} width="60" height="8" fill="#000" opacity="0.4" />
-          <rect
-            x={strikerCoord.x - 30}
-            y={strikerCoord.y + 30}
-            width={60 * (aim.power / Carrom.MAX_POWER)}
-            height="8"
-            fill="#ffd54a"
           />
         </>
       )}
-    </svg>
+      </svg>
+      <div className="mx-auto mt-3 flex h-9 w-[78%] max-w-[420px] items-center rounded-full border border-[#f6c856]/50 bg-[#2f0d09] px-2 shadow-[inset_0_2px_8px_rgba(0,0,0,0.8),0_5px_14px_rgba(0,0,0,0.35)]">
+        <div className="relative h-4 flex-1 overflow-hidden rounded-full border border-[#823317] bg-gradient-to-b from-[#bc8152] to-[#4b170d]">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[#ffe37a] via-[#ff9f2d] to-[#e83247] transition-[width] duration-100"
+            style={{ width: `${strengthPct}%` }}
+          />
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.36),transparent_45%,rgba(0,0,0,0.26))]" />
+        </div>
+        <div className="ml-2 grid h-7 w-7 place-items-center rounded-full border-2 border-[#f7e7d2] bg-[#e7334c] text-[9px] font-black text-white shadow">
+          {strengthPct}
+        </div>
+      </div>
+    </div>
   );
 }
 
