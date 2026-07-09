@@ -79,6 +79,7 @@ export type Database = {
           room_name: string
           status: string
           visibility: string
+          winners_needed: number
         }
         Insert: {
           called_numbers?: number[]
@@ -100,6 +101,7 @@ export type Database = {
           room_name?: string
           status?: string
           visibility?: string
+          winners_needed?: number
         }
         Update: {
           called_numbers?: number[]
@@ -121,6 +123,7 @@ export type Database = {
           room_name?: string
           status?: string
           visibility?: string
+          winners_needed?: number
         }
         Relationships: []
       }
