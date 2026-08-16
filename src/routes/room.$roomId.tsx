@@ -245,17 +245,50 @@ function RoomPage() {
           });
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          setConnectionLost(false);
+          // Pull the authoritative snapshot after (re)connecting so any events
+          // missed while offline (tickets, board, dice, move history) are applied.
+          void refetch();
+        } else if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          setConnectionLost(true);
+        }
+      });
 
     // Safety net: poll every 2.5s so the UI stays in sync even if the
     // realtime websocket drops or is slow to deliver an event.
     const interval = window.setInterval(refetch, 2500);
+
+    // Immediate resync when the tab/device wakes up or the network returns.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refetch();
+    };
+    const onOnline = () => {
+      setConnectionLost(false);
+      void refetch();
+    };
+    const onOffline = () => setConnectionLost(true);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+
     return () => {
       alive = false;
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
       supabase.removeChannel(ch);
     };
   }, [roomId]);
+
 
   const me = useMemo(
     () => (identity ? players.find((p) => p.id === identity.playerId) : undefined),
