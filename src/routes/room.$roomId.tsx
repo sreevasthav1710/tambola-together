@@ -2998,10 +2998,10 @@ function CarromRoom({
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(room.id); toast.success("Code copied"); }}>
+          <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => { navigator.clipboard.writeText(room.id); toast.success("Code copied"); }}>
             Copy
           </Button>
-          <Button variant="destructive" size="sm" onClick={() => { if (confirm("Exit this room?")) onExit(); }}>
+          <Button variant="destructive" size="sm" className="h-10 px-4" onClick={() => { if (confirm("Exit this room?")) onExit(); }}>
             Exit
           </Button>
         </div>
