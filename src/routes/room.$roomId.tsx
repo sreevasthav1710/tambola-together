@@ -3138,6 +3138,9 @@ function CarromBoard({
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragging = useRef<"slide" | "aim" | null>(null);
+  const [aimOffsetDeg, setAimOffsetDeg] = useState(0);
+  const [manualPower, setManualPower] = useState(Math.round(Carrom.MAX_POWER * 0.6));
+
 
   const baseline = mySeat ? Carrom.strikerBaseline(mySeat) : null;
   const strikerCoord =
