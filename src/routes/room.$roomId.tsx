@@ -3382,9 +3382,99 @@ function CarromBoard({
           {strengthPct}
         </div>
       </div>
+
+      {/* Mobile-friendly precision controls */}
+      {baseline && strikerCoord && (
+        <div className="mt-3 space-y-3 rounded-xl border border-border bg-muted/40 p-3">
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs font-semibold text-muted-foreground">
+              <span>Striker position</span>
+              <span>{disabled ? "Not your turn" : "Slide"}</span>
+            </div>
+            <input
+              type="range"
+              className="h-8 w-full accent-primary disabled:opacity-50"
+              min={baseline.min}
+              max={baseline.max}
+              step={1}
+              value={strikerPos}
+              disabled={disabled}
+              onChange={(e) => setStrikerPos(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs font-semibold text-muted-foreground">
+              <span>Aim</span>
+              <span>{Math.round(aimOffsetDeg)}°</span>
+            </div>
+            <input
+              type="range"
+              className="h-8 w-full accent-primary disabled:opacity-50"
+              min={-70}
+              max={70}
+              step={1}
+              value={aimOffsetDeg}
+              disabled={disabled}
+              onChange={(e) => {
+                const deg = Number(e.target.value);
+                setAimOffsetDeg(deg);
+                setAim({
+                  x: strikerCoord.x,
+                  y: strikerCoord.y,
+                  angle: baseAngle + (deg * Math.PI) / 180,
+                  power: manualPower,
+                });
+              }}
+            />
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs font-semibold text-muted-foreground">
+              <span>Power</span>
+              <span>{Math.round((manualPower / Carrom.MAX_POWER) * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              className="h-8 w-full accent-primary disabled:opacity-50"
+              min={1}
+              max={Carrom.MAX_POWER}
+              step={0.5}
+              value={manualPower}
+              disabled={disabled}
+              onChange={(e) => {
+                const p = Number(e.target.value);
+                setManualPower(p);
+                setAim({
+                  x: strikerCoord.x,
+                  y: strikerCoord.y,
+                  angle: baseAngle + (aimOffsetDeg * Math.PI) / 180,
+                  power: p,
+                });
+              }}
+            />
+          </div>
+          <Button
+            className="h-12 w-full text-base font-bold"
+            disabled={disabled}
+            onClick={() =>
+              onShoot(
+                baseAngle + (aimOffsetDeg * Math.PI) / 180,
+                manualPower,
+                strikerCoord.x,
+                strikerCoord.y,
+              )
+            }
+          >
+            Shoot
+          </Button>
+          <p className="text-center text-[11px] text-muted-foreground">
+            Or drag behind the striker on the board to aim and release to shoot.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
+
 
 function rotationForBottomSeat(seat: Carrom.Seat) {
   if (seat === "right") return 90;
