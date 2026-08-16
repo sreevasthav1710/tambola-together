@@ -560,21 +560,25 @@ function RoomPage() {
 
   if (isSpectator) {
     return (
-      <TambolaSpectatorView
-        room={room}
-        activePlayers={activePlayers}
-        spectators={spectators}
-        me={me}
-        onExit={() => setExitOpen(true)}
-        exitOpen={exitOpen}
-        setExitOpen={setExitOpen}
-        handleExit={handleExit}
-      />
+      <>
+        {connectionPill}
+        <TambolaSpectatorView
+          room={room}
+          activePlayers={activePlayers}
+          spectators={spectators}
+          me={me}
+          onExit={() => setExitOpen(true)}
+          exitOpen={exitOpen}
+          setExitOpen={setExitOpen}
+          handleExit={handleExit}
+        />
+      </>
     );
   }
 
   return (
     <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-24 md:pb-6">
+      {connectionPill}
       <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">
