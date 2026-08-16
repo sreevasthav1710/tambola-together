@@ -517,21 +517,41 @@ function RoomPage() {
     );
   }
 
+  const connectionPill = connectionLost ? (
+    <div className="fixed inset-x-0 top-2 z-[60] flex justify-center px-3 pointer-events-none">
+      <div className="pointer-events-auto rounded-full border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-500 backdrop-blur">
+        Reconnecting… syncing latest room state
+      </div>
+    </div>
+  ) : null;
+
   if (room.game_type === "chess") {
-    return <ChessRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />;
+    return (
+      <>
+        {connectionPill}
+        <ChessRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+      </>
+    );
   }
 
   if (room.game_type === "snake-ladder") {
     return (
-      <SnakeLadderRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+      <>
+        {connectionPill}
+        <SnakeLadderRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+      </>
     );
   }
 
   if (room.game_type === "carrom") {
     return (
-      <CarromRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+      <>
+        {connectionPill}
+        <CarromRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+      </>
     );
   }
+
 
   const lastNumber = room.called_numbers[room.called_numbers.length - 1];
   const activePlayers = players.filter((p) => p.role !== "spectator");
