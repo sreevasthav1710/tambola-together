@@ -3220,6 +3220,11 @@ function CarromBoard({
   }
 
   const strengthPct = aim ? Math.round((aim.power / Carrom.MAX_POWER) * 100) : 0;
+  // Straight-ahead direction for the slider controls: from the striker toward board centre.
+  const baseAngle = strikerCoord
+    ? Math.atan2(Carrom.CENTER - strikerCoord.y, Carrom.CENTER - strikerCoord.x)
+    : 0;
+
 
   return (
     <div className="mx-auto w-full max-w-[700px]">
