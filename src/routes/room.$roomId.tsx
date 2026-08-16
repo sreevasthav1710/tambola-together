@@ -145,6 +145,8 @@ function RoomPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [exitOpen, setExitOpen] = useState(false);
+  const [connectionLost, setConnectionLost] = useState(false);
+
   const [celebration, setCelebration] = useState<{
     id: string;
     label: string;
@@ -243,17 +245,50 @@ function RoomPage() {
           });
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          setConnectionLost(false);
+          // Pull the authoritative snapshot after (re)connecting so any events
+          // missed while offline (tickets, board, dice, move history) are applied.
+          void refetch();
+        } else if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          setConnectionLost(true);
+        }
+      });
 
     // Safety net: poll every 2.5s so the UI stays in sync even if the
     // realtime websocket drops or is slow to deliver an event.
     const interval = window.setInterval(refetch, 2500);
+
+    // Immediate resync when the tab/device wakes up or the network returns.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refetch();
+    };
+    const onOnline = () => {
+      setConnectionLost(false);
+      void refetch();
+    };
+    const onOffline = () => setConnectionLost(true);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+
     return () => {
       alive = false;
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
       supabase.removeChannel(ch);
     };
   }, [roomId]);
+
 
   const me = useMemo(
     () => (identity ? players.find((p) => p.id === identity.playerId) : undefined),
@@ -482,21 +517,41 @@ function RoomPage() {
     );
   }
 
+  const connectionPill = connectionLost ? (
+    <div className="fixed inset-x-0 top-2 z-[60] flex justify-center px-3 pointer-events-none">
+      <div className="pointer-events-auto rounded-full border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-500 backdrop-blur">
+        Reconnecting… syncing latest room state
+      </div>
+    </div>
+  ) : null;
+
   if (room.game_type === "chess") {
-    return <ChessRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />;
+    return (
+      <>
+        {connectionPill}
+        <ChessRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+      </>
+    );
   }
 
   if (room.game_type === "snake-ladder") {
     return (
-      <SnakeLadderRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+      <>
+        {connectionPill}
+        <SnakeLadderRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+      </>
     );
   }
 
   if (room.game_type === "carrom") {
     return (
-      <CarromRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+      <>
+        {connectionPill}
+        <CarromRoom room={room} players={players} me={me} isHost={isHost} onExit={handleExit} />
+      </>
     );
   }
+
 
   const lastNumber = room.called_numbers[room.called_numbers.length - 1];
   const activePlayers = players.filter((p) => p.role !== "spectator");
@@ -505,21 +560,25 @@ function RoomPage() {
 
   if (isSpectator) {
     return (
-      <TambolaSpectatorView
-        room={room}
-        activePlayers={activePlayers}
-        spectators={spectators}
-        me={me}
-        onExit={() => setExitOpen(true)}
-        exitOpen={exitOpen}
-        setExitOpen={setExitOpen}
-        handleExit={handleExit}
-      />
+      <>
+        {connectionPill}
+        <TambolaSpectatorView
+          room={room}
+          activePlayers={activePlayers}
+          spectators={spectators}
+          me={me}
+          onExit={() => setExitOpen(true)}
+          exitOpen={exitOpen}
+          setExitOpen={setExitOpen}
+          handleExit={handleExit}
+        />
+      </>
     );
   }
 
   return (
     <div className="min-h-screen px-3 sm:px-4 py-4 sm:py-6 max-w-7xl mx-auto pb-24 md:pb-6">
+      {connectionPill}
       <header className="flex items-start justify-between mb-4 sm:mb-6 gap-2">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold text-primary truncate">
@@ -2649,29 +2708,25 @@ function ChessStatusBanner({
     return () => window.clearTimeout(t);
   }, [kind, isMyTurn]);
 
-  if (kind === "checkmate") {
-    return (
-      <div className="w-full mb-3 rounded-md border border-destructive/40 bg-destructive/15 px-3 py-2 text-center text-sm font-semibold text-destructive">
+  const content =
+    kind === "checkmate" ? (
+      <div className="w-full rounded-md border border-destructive/40 bg-destructive/15 px-3 py-2 text-center text-sm font-semibold text-destructive">
         Checkmate — {iAmWinner ? "You won!" : winnerName ? `${winnerName} wins` : "Game over"}
       </div>
-    );
-  }
-  if (kind === "stalemate" || kind === "draw") {
-    return (
-      <div className="w-full mb-3 rounded-md border border-border bg-muted px-3 py-2 text-center text-sm font-semibold">
+    ) : kind === "stalemate" || kind === "draw" ? (
+      <div className="w-full rounded-md border border-border bg-muted px-3 py-2 text-center text-sm font-semibold">
         {kind === "stalemate" ? "Stalemate" : "Draw"}
       </div>
-    );
-  }
-  if (kind === "check" && showCheck) {
-    return (
-      <div className="w-full mb-3 rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-center text-sm font-semibold text-amber-600 dark:text-amber-400">
+    ) : kind === "check" && showCheck ? (
+      <div className="w-full rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-center text-sm font-semibold text-amber-600 dark:text-amber-400">
         {isMyTurn ? "Your king is in check" : "Opponent is in check"}
       </div>
-    );
-  }
-  return null;
+    ) : null;
+
+  // Fixed-height slot so the board never shifts when the banner appears.
+  return <div className="mb-2 flex min-h-[2.4rem] w-full items-center">{content}</div>;
 }
+
 
 function ChessGameOverModal({
   open,
@@ -2705,7 +2760,7 @@ function ChessGameOverModal({
         : "Draw";
   return (
     <AlertDialog open={isOpen} onOpenChange={(v) => !v && setDismissed(true)}>
-      <AlertDialogContent>
+      <AlertDialogContent className="top-auto bottom-3 translate-y-0 w-[calc(100%-1.5rem)] max-w-md sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2">
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>
@@ -2714,15 +2769,16 @@ function ChessGameOverModal({
               : "The game has ended without a winner."}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => setDismissed(true)}>Close</AlertDialogCancel>
+        <AlertDialogFooter className="gap-2">
+          <AlertDialogCancel className="h-11" onClick={() => setDismissed(true)}>Close</AlertDialogCancel>
           {isHost ? (
-            <AlertDialogAction onClick={() => { setDismissed(true); onRestart(); }}>
+            <AlertDialogAction className="h-11" onClick={() => { setDismissed(true); onRestart(); }}>
               New Game
             </AlertDialogAction>
           ) : null}
-          <AlertDialogAction onClick={onExit}>Exit Room</AlertDialogAction>
+          <AlertDialogAction className="h-11" onClick={onExit}>Exit Room</AlertDialogAction>
         </AlertDialogFooter>
+
       </AlertDialogContent>
     </AlertDialog>
   );
@@ -2942,10 +2998,10 @@ function CarromRoom({
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(room.id); toast.success("Code copied"); }}>
+          <Button variant="outline" size="sm" className="h-10 px-4" onClick={() => { navigator.clipboard.writeText(room.id); toast.success("Code copied"); }}>
             Copy
           </Button>
-          <Button variant="destructive" size="sm" onClick={() => { if (confirm("Exit this room?")) onExit(); }}>
+          <Button variant="destructive" size="sm" className="h-10 px-4" onClick={() => { if (confirm("Exit this room?")) onExit(); }}>
             Exit
           </Button>
         </div>
@@ -3082,6 +3138,9 @@ function CarromBoard({
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragging = useRef<"slide" | "aim" | null>(null);
+  const [aimOffsetDeg, setAimOffsetDeg] = useState(0);
+  const [manualPower, setManualPower] = useState(Math.round(Carrom.MAX_POWER * 0.6));
+
 
   const baseline = mySeat ? Carrom.strikerBaseline(mySeat) : null;
   const strikerCoord =
@@ -3161,6 +3220,11 @@ function CarromBoard({
   }
 
   const strengthPct = aim ? Math.round((aim.power / Carrom.MAX_POWER) * 100) : 0;
+  // Straight-ahead direction for the slider controls: from the striker toward board centre.
+  const baseAngle = strikerCoord
+    ? Math.atan2(Carrom.CENTER - strikerCoord.y, Carrom.CENTER - strikerCoord.x)
+    : 0;
+
 
   return (
     <div className="mx-auto w-full max-w-[700px]">
@@ -3289,9 +3353,12 @@ function CarromBoard({
               onPointerDown={handleSlidePointerDown}
             />
           )}
+          {/* Oversized invisible hit area for comfortable touch dragging */}
+          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS * 2.4} fill="transparent" />
           <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS + 4} fill="#d83a4d" opacity="0.32" />
           <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS} fill="#f8f4e8" stroke="#5a2e10" strokeWidth="2.5" />
           <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS - 6} fill="none" stroke="#d83a4d" strokeWidth="2" />
+
         </g>
       )}
       {/* Aim line */}
@@ -3323,9 +3390,99 @@ function CarromBoard({
           {strengthPct}
         </div>
       </div>
+
+      {/* Mobile-friendly precision controls */}
+      {baseline && strikerCoord && (
+        <div className="mt-3 space-y-3 rounded-xl border border-border bg-muted/40 p-3">
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs font-semibold text-muted-foreground">
+              <span>Striker position</span>
+              <span>{disabled ? "Not your turn" : "Slide"}</span>
+            </div>
+            <input
+              type="range"
+              className="h-8 w-full accent-primary disabled:opacity-50"
+              min={baseline.min}
+              max={baseline.max}
+              step={1}
+              value={strikerPos}
+              disabled={disabled}
+              onChange={(e) => setStrikerPos(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs font-semibold text-muted-foreground">
+              <span>Aim</span>
+              <span>{Math.round(aimOffsetDeg)}°</span>
+            </div>
+            <input
+              type="range"
+              className="h-8 w-full accent-primary disabled:opacity-50"
+              min={-70}
+              max={70}
+              step={1}
+              value={aimOffsetDeg}
+              disabled={disabled}
+              onChange={(e) => {
+                const deg = Number(e.target.value);
+                setAimOffsetDeg(deg);
+                setAim({
+                  x: strikerCoord.x,
+                  y: strikerCoord.y,
+                  angle: baseAngle + (deg * Math.PI) / 180,
+                  power: manualPower,
+                });
+              }}
+            />
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs font-semibold text-muted-foreground">
+              <span>Power</span>
+              <span>{Math.round((manualPower / Carrom.MAX_POWER) * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              className="h-8 w-full accent-primary disabled:opacity-50"
+              min={1}
+              max={Carrom.MAX_POWER}
+              step={0.5}
+              value={manualPower}
+              disabled={disabled}
+              onChange={(e) => {
+                const p = Number(e.target.value);
+                setManualPower(p);
+                setAim({
+                  x: strikerCoord.x,
+                  y: strikerCoord.y,
+                  angle: baseAngle + (aimOffsetDeg * Math.PI) / 180,
+                  power: p,
+                });
+              }}
+            />
+          </div>
+          <Button
+            className="h-12 w-full text-base font-bold"
+            disabled={disabled}
+            onClick={() =>
+              onShoot(
+                baseAngle + (aimOffsetDeg * Math.PI) / 180,
+                manualPower,
+                strikerCoord.x,
+                strikerCoord.y,
+              )
+            }
+          >
+            Shoot
+          </Button>
+          <p className="text-center text-[11px] text-muted-foreground">
+            Or drag behind the striker on the board to aim and release to shoot.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
+
 
 function rotationForBottomSeat(seat: Carrom.Seat) {
   if (seat === "right") return 90;
