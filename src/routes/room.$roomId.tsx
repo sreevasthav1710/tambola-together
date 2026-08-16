@@ -2708,29 +2708,25 @@ function ChessStatusBanner({
     return () => window.clearTimeout(t);
   }, [kind, isMyTurn]);
 
-  if (kind === "checkmate") {
-    return (
-      <div className="w-full mb-3 rounded-md border border-destructive/40 bg-destructive/15 px-3 py-2 text-center text-sm font-semibold text-destructive">
+  const content =
+    kind === "checkmate" ? (
+      <div className="w-full rounded-md border border-destructive/40 bg-destructive/15 px-3 py-2 text-center text-sm font-semibold text-destructive">
         Checkmate — {iAmWinner ? "You won!" : winnerName ? `${winnerName} wins` : "Game over"}
       </div>
-    );
-  }
-  if (kind === "stalemate" || kind === "draw") {
-    return (
-      <div className="w-full mb-3 rounded-md border border-border bg-muted px-3 py-2 text-center text-sm font-semibold">
+    ) : kind === "stalemate" || kind === "draw" ? (
+      <div className="w-full rounded-md border border-border bg-muted px-3 py-2 text-center text-sm font-semibold">
         {kind === "stalemate" ? "Stalemate" : "Draw"}
       </div>
-    );
-  }
-  if (kind === "check" && showCheck) {
-    return (
-      <div className="w-full mb-3 rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-center text-sm font-semibold text-amber-600 dark:text-amber-400">
+    ) : kind === "check" && showCheck ? (
+      <div className="w-full rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-center text-sm font-semibold text-amber-600 dark:text-amber-400">
         {isMyTurn ? "Your king is in check" : "Opponent is in check"}
       </div>
-    );
-  }
-  return null;
+    ) : null;
+
+  // Fixed-height slot so the board never shifts when the banner appears.
+  return <div className="mb-2 flex min-h-[2.4rem] w-full items-center">{content}</div>;
 }
+
 
 function ChessGameOverModal({
   open,
