@@ -145,6 +145,8 @@ function RoomPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [exitOpen, setExitOpen] = useState(false);
+  const [connectionLost, setConnectionLost] = useState(false);
+
   const [celebration, setCelebration] = useState<{
     id: string;
     label: string;
