@@ -3345,9 +3345,12 @@ function CarromBoard({
               onPointerDown={handleSlidePointerDown}
             />
           )}
+          {/* Oversized invisible hit area for comfortable touch dragging */}
+          <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS * 2.4} fill="transparent" />
           <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS + 4} fill="#d83a4d" opacity="0.32" />
           <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS} fill="#f8f4e8" stroke="#5a2e10" strokeWidth="2.5" />
           <circle cx={strikerCoord.x} cy={strikerCoord.y} r={Carrom.STRIKER_RADIUS - 6} fill="none" stroke="#d83a4d" strokeWidth="2" />
+
         </g>
       )}
       {/* Aim line */}
