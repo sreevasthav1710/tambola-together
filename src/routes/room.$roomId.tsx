@@ -2760,7 +2760,7 @@ function ChessGameOverModal({
         : "Draw";
   return (
     <AlertDialog open={isOpen} onOpenChange={(v) => !v && setDismissed(true)}>
-      <AlertDialogContent>
+      <AlertDialogContent className="top-auto bottom-3 translate-y-0 w-[calc(100%-1.5rem)] max-w-md sm:top-1/2 sm:bottom-auto sm:-translate-y-1/2">
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>
@@ -2769,15 +2769,16 @@ function ChessGameOverModal({
               : "The game has ended without a winner."}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => setDismissed(true)}>Close</AlertDialogCancel>
+        <AlertDialogFooter className="gap-2">
+          <AlertDialogCancel className="h-11" onClick={() => setDismissed(true)}>Close</AlertDialogCancel>
           {isHost ? (
-            <AlertDialogAction onClick={() => { setDismissed(true); onRestart(); }}>
+            <AlertDialogAction className="h-11" onClick={() => { setDismissed(true); onRestart(); }}>
               New Game
             </AlertDialogAction>
           ) : null}
-          <AlertDialogAction onClick={onExit}>Exit Room</AlertDialogAction>
+          <AlertDialogAction className="h-11" onClick={onExit}>Exit Room</AlertDialogAction>
         </AlertDialogFooter>
+
       </AlertDialogContent>
     </AlertDialog>
   );
